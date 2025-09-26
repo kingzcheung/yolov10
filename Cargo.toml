@@ -1,0 +1,15 @@
+[package]
+name = "yolov10"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ort = {version = "=2.0.0-rc.10", features = ["ndarray","coreml"]}
+ndarray = "0.16.1"
+image = "0.25.8"
+imageproc = "0.25.0"
+ab_glyph = "0.2.31"
+
+[[bin]]
+name = "yolov10"
+path = "src/main.rs"
