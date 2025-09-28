@@ -1,15 +1,40 @@
 [package]
 name = "yolov10"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
+authors = ["kingzcheung <kingzcheung@gmail.com>"]
+description = "YOLOv10 object detection implementation in Rust with ONNX Runtime"
+license = "Apache-2.0"
+repository = "https://github.com/kingzcheung/yolov10"
+homepage = "https://github.com/kingzcheung/yolov10"
+documentation = "https://docs.rs/yolov10"
+readme = "README.md"
+keywords = ["yolo", "object-detection", "computer-vision", "onnx", "ai"]
+categories = ["computer-vision", "science::robotics", "multimedia::images"]
 
 [dependencies]
-ort = {version = "=2.0.0-rc.10", features = ["ndarray","coreml"]}
 ndarray = "0.16.1"
 image = "0.25.8"
 imageproc = "0.25.0"
 ab_glyph = "0.2.31"
+ort = { version = "=2.0.0-rc.10", features = ["ndarray"] }
 
-[[bin]]
-name = "yolov10"
-path = "src/main.rs"
+[features]
+default = ["cpu","coreml"]
+cuda = ["ort/cuda"]
+cpu = []
+coreml = ["ort/coreml"]
+directml = ["ort/directml"]
+tensorrt = ["ort/tensorrt"]
+
+[target.'cfg(target_os = "macos")'.dependencies.ort]
+version = "=2.0.0-rc.10"
+features = ["ndarray", "coreml"]
+
+[target.'cfg(windows)'.dependencies.ort]
+version = "=2.0.0-rc.10"
+features = ["ndarray", "directml"]
+
+[target.'cfg(target_os = "linux")'.dependencies.ort]
+version = "=2.0.0-rc.10"
+features = ["ndarray", "cuda",]

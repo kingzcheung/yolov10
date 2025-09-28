@@ -6,11 +6,20 @@ use ndarray::Array;
 pub use ort;
 
 use ort::{
-    execution_providers::CoreMLExecutionProvider,
     inputs,
     session::{Session, SessionOutputs, builder::GraphOptimizationLevel},
     value::TensorRef,
 };
+
+#[cfg(feature = "coreml")]
+use ort::execution_providers::CoreMLExecutionProvider;
+
+#[cfg(feature = "cuda")]
+use ort::execution_providers::CUDAExecutionProvider;
+
+#[cfg(feature = "directml")]
+use ort::execution_providers::DirectMLExecutionProvider;
+
 use std::error::Error;
 
 #[rustfmt::skip]
@@ -63,16 +72,26 @@ pub struct InferenceEngine {
 }
 
 impl InferenceEngine {
-    /// 创建新的推理引擎实例
+    /// 创建新的推理引擎实例，使用默认的CPU执行提供程序
     pub fn new(model_path: &str) -> Result<Self, Box<dyn Error>> {
         let session = Session::builder()?
             .with_inter_threads(1)?
             .with_optimization_level(GraphOptimizationLevel::Level3)?
-            .with_execution_providers([CoreMLExecutionProvider::default().build()])?
+            .with_execution_providers([
+                #[cfg(feature = "cuda")]
+                CUDAExecutionProvider::default().build(),
+                #[cfg(feature = "directml")]
+                DirectMLExecutionProvider::default().build(),
+                #[cfg(feature = "coreml")]
+                CoreMLExecutionProvider::default().build(),
+                #[cfg(feature = "tensorrt")]
+                TensorRTExecutionProvider::default().build(),
+            ])?
             .commit_from_file(model_path)?;
 
         Ok(Self { session })
     }
+
 
     /// 预处理图像
     #[allow(clippy::type_complexity)]
@@ -208,54 +227,6 @@ pub fn filter_detections(
 
     // println!("最终有效检测数量: {}", detections.len());
     detections
-}
-
-/// 计算两个边界框之间的IoU
-fn compute_iou(box_a: (u32, u32, u32, u32), box_b: (u32, u32, u32, u32)) -> f32 {
-    let (x1_a, y1_a, w_a, h_a) = box_a;
-    let (x1_b, y1_b, w_b, h_b) = box_b;
-
-    let x2_a = x1_a + w_a;
-    let y2_a = y1_a + h_a;
-    let x2_b = x1_b + w_b;
-    let y2_b = y1_b + h_b;
-
-    // 计算交集坐标
-    let x_a = x1_a.max(x1_b) as i32;
-    let y_a = y1_a.max(y1_b) as i32;
-    let x_b = x2_a.min(x2_b) as i32;
-    let y_b = y2_a.min(y2_b) as i32;
-
-    // 计算交集面积
-    let inter_width = 0.max(x_b - x_a);
-    let inter_height = 0.max(y_b - y_a);
-    let intersection_area = (inter_width * inter_height) as f32;
-
-    // 计算两个框的面积
-    let area_a = (w_a * h_a) as f32;
-    let area_b = (w_b * h_b) as f32;
-
-    // 计算IoU
-    intersection_area / (area_a + area_b - intersection_area)
-}
-/// 应用Soft-NMS以减少重叠检测
-fn nms(detections: &mut Vec<Detection>, sigma: f32, iou_threshold: f32) {
-    let mut i = 0;
-    while i < detections.len() {
-        let mut j = i + 1;
-        while j < detections.len() {
-            let iou = compute_iou(detections[i].bbox, detections[j].bbox);
-            if iou > iou_threshold {
-                // 应用Soft-NMS分数衰减公式
-                detections[j].confidence *= (-iou * iou / sigma).exp();
-            }
-            j += 1;
-        }
-        i += 1;
-    }
-
-    // 移除置信度分数较低的检测
-    detections.retain(|det| det.confidence >= 0.001);
 }
 
 /// 在图像上绘制检测框和标签
