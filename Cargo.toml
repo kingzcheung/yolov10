@@ -1,6 +1,6 @@
 [package]
 name = "yolov10"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 authors = ["kingzcheung <kingzcheung@gmail.com>"]
 description = "YOLOv10 object detection implementation in Rust with ONNX Runtime"
@@ -20,7 +20,7 @@ ab_glyph = "0.2.31"
 ort = { version = "=2.0.0-rc.10", features = ["ndarray"] }
 
 [features]
-default = ["cpu","coreml"]
+default = ["cpu"]
 cuda = ["ort/cuda"]
 cpu = []
 coreml = ["ort/coreml"]
