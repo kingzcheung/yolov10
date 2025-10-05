@@ -8,7 +8,7 @@ As a library crate, you can integrate this into your own Rust projects by adding
 
 ```toml
 [dependencies]
-yolov10 = { path = "path/to/this/repository" }
+yolov10 = {version = "*" } # * means latest
 ```
 
 Then use it in your code:

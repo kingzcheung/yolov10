@@ -1,6 +1,6 @@
 [package]
 name = "yolov10"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 authors = ["kingzcheung <kingzcheung@gmail.com>"]
 description = "YOLOv10 object detection implementation in Rust with ONNX Runtime"

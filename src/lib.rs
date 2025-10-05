@@ -20,10 +20,14 @@ use ort::execution_providers::CUDAExecutionProvider;
 #[cfg(feature = "directml")]
 use ort::execution_providers::DirectMLExecutionProvider;
 
+#[cfg(feature = "tensorrt")]
+use ort::execution_providers::TensorRTExecutionProvider;
+
 use std::error::Error;
+use std::borrow::Cow;
 
 #[rustfmt::skip]
-const YOLOV10_CLASS_LABELS: [&str; 80] = [
+pub const YOLOV10_CLASS_LABELS: [&str; 80] = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
 	"fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow", "elephant",
 	"bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard",
@@ -67,11 +71,12 @@ pub struct Detection {
 }
 
 /// YOLOv10推理引擎
-pub struct InferenceEngine {
+pub struct InferenceEngine<'a> {
     session: Session,
+    class_labels: Option<Vec<Cow<'a, str>>>,
 }
 
-impl InferenceEngine {
+impl<'a> InferenceEngine<'a> {
     /// 创建新的推理引擎实例，使用默认的CPU执行提供程序
     pub fn new(model_path: &str) -> Result<Self, Box<dyn Error>> {
         let session = Session::builder()?
@@ -89,7 +94,32 @@ impl InferenceEngine {
             ])?
             .commit_from_file(model_path)?;
 
-        Ok(Self { session })
+        Ok(Self { 
+            session, 
+            class_labels: None
+        })
+    }
+
+    pub fn new_with_labels(model_path: &str, class_labels: &'a[&str]) -> Result<Self, Box<dyn Error>> {
+        let session = Session::builder()?
+            .with_inter_threads(1)?
+            .with_optimization_level(GraphOptimizationLevel::Level3)?
+            .with_execution_providers([
+                #[cfg(feature = "cuda")]
+                CUDAExecutionProvider::default().build(),
+                #[cfg(feature = "directml")]
+                DirectMLExecutionProvider::default().build(),
+                #[cfg(feature = "coreml")]
+                CoreMLExecutionProvider::default().build(),
+                #[cfg(feature = "tensorrt")]
+                TensorRTExecutionProvider::default().build(),
+            ])?
+            .commit_from_file(model_path)?;
+        
+        Ok(Self { 
+            session, 
+            class_labels: Some(class_labels.iter().map(|&s| Cow::Borrowed(s)).collect()) 
+        })
     }
 
 
@@ -115,7 +145,7 @@ impl InferenceEngine {
     }
 
     /// 运行推理
-    pub fn run_inference(&mut self, buffer: &[u8],confidence_threshold:f32) -> Result<Vec<Detection>, Box<dyn Error>> {
+    pub fn run_inference(&mut self, buffer: &[u8], confidence_threshold: f32) -> Result<Vec<Detection>, Box<dyn Error>> {
         // 创建输入张量
 
         let img = image::load_from_memory(buffer)?;
@@ -134,11 +164,19 @@ impl InferenceEngine {
         // println!("输出张量形状: {:?}", _output_shape);
         let output_vec: Vec<f32> = output_data.to_vec();
         // println!("{:?}", output_vec);
-        let detections = filter_detections(&output_vec, confidence_threshold, 640, 640, orig_width, orig_height);
+        let detections = filter_detections(
+            &output_vec, 
+            confidence_threshold, 
+            640, 
+            640, 
+            orig_width, 
+            orig_height
+        );
 
         Ok(detections)
     }
 }
+
 /// 过滤检测结果
 pub fn filter_detections(
     results: &[f32],
@@ -147,6 +185,19 @@ pub fn filter_detections(
     img_height: u32,
     orig_width: u32,
     orig_height: u32,
+) -> Vec<Detection> {
+    filter_detections_with_labels(results, confidence_threshold, img_width, img_height, orig_width, orig_height, None)
+}
+
+/// 过滤检测结果
+pub fn filter_detections_with_labels(
+    results: &[f32],
+    confidence_threshold: f32,
+    img_width: u32,
+    img_height: u32,
+    orig_width: u32,
+    orig_height: u32,
+    class_labels: Option<&[&str]>,
 ) -> Vec<Detection> {
     // YOLOv10输出格式: [x1, y1, x2, y2, score, class_id]
     // 每6个元素为一个检测框
@@ -158,6 +209,9 @@ pub fn filter_detections(
     // println!("检测框数量: {}", num_detections);
 
     let mut detections = Vec::with_capacity(num_detections);
+
+    // 获取类别标签引用或使用默认标签
+    let labels: &[&str] = class_labels.unwrap_or(YOLOV10_CLASS_LABELS.as_slice());
 
     // 计算缩放和填充因子 
     let scale = (img_width as f32 / orig_width as f32).min(img_height as f32 / orig_height as f32);
@@ -187,7 +241,7 @@ pub fn filter_detections(
         }
 
         // 检查类别ID是否有效
-        if class_id >= YOLOV10_CLASS_LABELS.len() {
+        if class_id >= labels.len() {
             // println!("跳过无效类别ID: {}", class_id);
             continue;
         }
@@ -211,12 +265,11 @@ pub fn filter_detections(
                     confidence,
                     bbox: (x, y, width, height),
                     class_id,
-                    class_name: YOLOV10_CLASS_LABELS[class_id].to_owned(),
+                    class_name: labels[class_id].to_string(),
                 });
             } else {
                 println!(
-                    "跳过无效边界框: ({}, {}) - 宽度: {}, 高度: {}",
-                    x, y, width, height
+                    "跳过无效边界框: ({x}, {y}) - 宽度: {width}, 高度: {height}"
                 );
             }
         }
