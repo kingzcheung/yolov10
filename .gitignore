@@ -2,6 +2,6 @@
 *.jpg
 *onnx
 Cargo.lock
-yolov10s.onnx
-yolov10s.pt
+*.pt
 uv.lock
+*.safetensors
