@@ -18,6 +18,9 @@ image = "0.25.8"
 imageproc = "0.25.0"
 ab_glyph = "0.2.31"
 ort = { version = "=2.0.0-rc.10", features = ["ndarray"] }
+candle-nn = "0.9.1"
+candle-core = "0.9.1"
+tracing = "0.1.41"
 
 [features]
 default = ["cpu"]

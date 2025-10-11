@@ -11,6 +11,8 @@ use ort::{
     value::TensorRef,
 };
 
+pub mod yolov10;
+
 #[cfg(feature = "coreml")]
 use ort::execution_providers::CoreMLExecutionProvider;
 
