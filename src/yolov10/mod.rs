@@ -8,6 +8,7 @@ pub mod sequential;
 pub mod backbone;
 pub mod neck;
 pub mod head;
+pub mod op;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Multiples {

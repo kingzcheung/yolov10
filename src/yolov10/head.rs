@@ -1,3 +1,5 @@
+use crate::yolov10::op::{TopKLastDimOp, TopKOutput, TensorRemOps};
+
 use super::{block::Dfl, conv::ConvBlock};
 use candle_core::{D, DType, IndexOp, Result, Tensor};
 use candle_nn::{conv2d, seq, Conv2d, Module, VarBuilder};
@@ -42,6 +44,44 @@ fn dist2bbox(distance: &Tensor, anchor_points: &Tensor) -> Result<Tensor> {
     let c_xy = ((&x1y1 + &x2y2)? * 0.5)?;
     let wh = (&x2y2 - &x1y1)?;
     Tensor::cat(&[c_xy, wh], 1)
+}
+
+fn v10postprocess(preds: &Tensor, max_det: usize, nc: usize) -> Result<(Tensor, Tensor, Tensor)> {
+    let preds_shape = preds.dims();
+    assert!(4 + nc == preds_shape[preds_shape.len() - 1]);
+    
+    // Split boxes and scores
+    let boxes = preds.i((.., .., ..4))?;
+    let scores = preds.i((.., .., 4..))?;
+    
+    // Get max scores - replace amax with max operation along the last dimension
+    let max_scores = scores.max_keepdim(2)?;  // This is equivalent to PyTorch's amax(-1)
+    
+    // max_scores, index = torch.topk(max_scores, max_det, dim=-1)
+    let TopKOutput { values: max_scores, indices: topk_indices} =  max_scores.topk(max_det)?;
+
+    let index = topk_indices.unsqueeze(2)?; // Equivalent to index.unsqueeze(-1)
+    
+    // Gather boxes and scores
+    let boxes = boxes.gather(&index.repeat((1, 1, boxes.dims()[2]))?, 1)?;  // Gather along dim 1 (0-indexed)
+    let scores = scores.gather(&index.repeat((1, 1, scores.dims()[2]))?, 1)?;  // Gather along dim 1 (0-indexed)
+    
+    // scores, index = torch.topk(scores.flatten(1), max_det, dim=-1)
+    let scores_flat = scores.flatten(1, 2)?;
+    let TopKOutput { values: scores, indices: index } = scores_flat.topk(max_det)?;
+    
+    // Calculate labels and index
+    // labels = index % nc
+    
+    let nc_tensor = Tensor::from_slice(&[nc as u32], 1, scores.device())?;
+    let labels = index.rem(&nc_tensor)?;
+    // index = index // nc
+    let index = index.div(&nc_tensor)?;
+    
+    // boxes = boxes.gather(dim=1, index=index.unsqueeze(-1).repeat(1, 1, boxes.shape[-1]))
+    let boxes = boxes.gather(&index.unsqueeze(2)?.repeat((1, 1, boxes.dims()[2]))?, 1)?;
+    
+    Ok((boxes, scores, labels))
 }
 
 #[derive(Clone, Debug)]
@@ -89,6 +129,7 @@ pub struct V10DetectionHead {
     one2one_cv3: [Cv3; 3],
     ch: usize,
     no: usize,
+    max_det: usize,
     span: tracing::Span,
 }
 
@@ -131,6 +172,7 @@ impl V10DetectionHead {
             one2one_cv3,
             ch:reg_max,
             no,
+            max_det: 300, // Default value
             span: tracing::span!(tracing::Level::TRACE, "detection-head"),
         })
     }
@@ -210,7 +252,16 @@ impl V10DetectionHead {
     pub fn forward(&self, xs0: &Tensor, xs1: &Tensor, xs2: &Tensor) -> Result<Tensor> {
         // For inference, we only use the one2one branch
         let one2one = self.forward_feat(xs0, xs1, xs2, self.one2one_cv2.clone(), self.one2one_cv3.clone())?;
-        self.forward_i(&one2one.0, &one2one.1, &one2one.2)
+        let one2one_result = self.forward_i(&one2one.0, &one2one.1, &one2one.2)?;
+        
+        // Apply v10postprocess
+        let permuted = one2one_result.transpose(1, 2)?; // Permute to match PyTorch's permute(0, 2, 1)
+        let (boxes, scores, labels) = v10postprocess(&permuted, self.max_det, self.no - 16 * 4)?; // nc = no - 16*4
+        
+        // Concatenate results: boxes, scores.unsqueeze(-1), labels.unsqueeze(-1)
+        let scores = scores.unsqueeze(2)?; // scores.unsqueeze(-1)
+        let labels = labels.unsqueeze(2)?.to_dtype(DType::F32)?; // labels.unsqueeze(-1).to(boxes.dtype)
+        Tensor::cat(&[&boxes, &scores, &labels], 2)
     }
     
     // Add a method for training that returns both one2one and one2many branches
