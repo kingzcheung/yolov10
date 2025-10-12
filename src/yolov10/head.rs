@@ -1,4 +1,4 @@
-use crate::yolov10::op::{TopKLastDimOp, TopKOutput, TensorRemOps};
+use crate::yolov10::op::{TensorOps, TopKLastDimOp, TopKOutput};
 
 use super::{block::Dfl, conv::ConvBlock};
 use candle_core::{D, DType, IndexOp, Result, Tensor};
@@ -46,42 +46,61 @@ fn dist2bbox(distance: &Tensor, anchor_points: &Tensor) -> Result<Tensor> {
     Tensor::cat(&[c_xy, wh], 1)
 }
 
-fn v10postprocess(preds: &Tensor, max_det: usize, nc: usize) -> Result<(Tensor, Tensor, Tensor)> {
+/// preds: Tensor[[1, 8400, 84], f32]
+fn v10postprocess(preds: &Tensor, max_det: usize, nc: usize) -> Result<Tensor> {
     let preds_shape = preds.dims();
     assert!(4 + nc == preds_shape[preds_shape.len() - 1]);
+
+    let batch_size = preds_shape[0];
     
     // Split boxes and scores
     let boxes = preds.i((.., .., ..4))?;
     let scores = preds.i((.., .., 4..))?;
-    
-    // Get max scores - replace amax with max operation along the last dimension
-    let max_scores = scores.max_keepdim(2)?;  // This is equivalent to PyTorch's amax(-1)
-    
-    // max_scores, index = torch.topk(max_scores, max_det, dim=-1)
-    let TopKOutput { values: max_scores, indices: topk_indices} =  max_scores.topk(max_det)?;
 
-    let index = topk_indices.unsqueeze(2)?; // Equivalent to index.unsqueeze(-1)
+    let amax_scores = scores.max(D::Minus1)?;
+        
+    // max_scores, index = torch.topk(max_scores, max_det, dim=-1)
+    let TopKOutput { values: _max_scores, indices: topk_indices} =  amax_scores.topk(max_det)?;
+
+    // println!("max_scores: {:?}",max_scores.shape());// max_scores: [1, 300]
+    // println!("topk_indices: {:?}",topk_indices.shape());// topk_indices: [1, 300]
+
+    let index = topk_indices.unsqueeze(D::Minus1)?; // Equivalent to index.unsqueeze(-1)
     
-    // Gather boxes and scores
-    let boxes = boxes.gather(&index.repeat((1, 1, boxes.dims()[2]))?, 1)?;  // Gather along dim 1 (0-indexed)
-    let scores = scores.gather(&index.repeat((1, 1, scores.dims()[2]))?, 1)?;  // Gather along dim 1 (0-indexed)
+
+    let boxes = boxes.contiguous()?.gather(&index.repeat((1, 1, 4))?, 1)?;
+    let scores = scores.contiguous()?.gather(&index.repeat((1, 1, nc))?, 1)?;
+
     
     // scores, index = torch.topk(scores.flatten(1), max_det, dim=-1)
     let scores_flat = scores.flatten(1, 2)?;
     let TopKOutput { values: scores, indices: index } = scores_flat.topk(max_det)?;
     
-    // Calculate labels and index
-    // labels = index % nc
+    // println!("index: {:?}",index.shape());//boxes: [1, 300]
+    // println!("scores: {:?}",scores.shape());//scores: [1, 300]
+
+    let i = Tensor::arange(0, batch_size as u32, preds.device())?
+    .unsqueeze(D::Minus1)?;
+
+    println!("i: {:?}",i.shape());//scores: [1, 300]
+
     
     let nc_tensor = Tensor::from_slice(&[nc as u32], 1, scores.device())?;
-    let labels = index.rem(&nc_tensor)?;
     // index = index // nc
-    let index = index.div(&nc_tensor)?;
+    let index_div = index.broadcast_div(&nc_tensor)?;
+    let boxes_gathered = boxes.gather(&index_div.unsqueeze(2)?, 1)?;  // [batch_size, max_det, 4]
+
+    // scores[..., None]
+    let scores_expanded = scores.unsqueeze(2)?;  // [batch_size, max_det, 1]
+
+    // (index % nc)[..., None].float()
+let index_mod = index.broadcast_rem(&nc_tensor)?;  // index % nc
+let index_mod_expanded = index_mod.unsqueeze(2)?.to_dtype(DType::F32)?;  // [batch_size, max_det, 1]
+
+// Concatenate along last dimension
+let result = Tensor::cat(&[&boxes_gathered, &scores_expanded, &index_mod_expanded], 2)?;
     
-    // boxes = boxes.gather(dim=1, index=index.unsqueeze(-1).repeat(1, 1, boxes.shape[-1]))
-    let boxes = boxes.gather(&index.unsqueeze(2)?.repeat((1, 1, boxes.dims()[2]))?, 1)?;
-    
-    Ok((boxes, scores, labels))
+    Ok(result)
 }
 
 #[derive(Clone, Debug)]
@@ -256,12 +275,9 @@ impl V10DetectionHead {
         
         // Apply v10postprocess
         let permuted = one2one_result.transpose(1, 2)?; // Permute to match PyTorch's permute(0, 2, 1)
-        let (boxes, scores, labels) = v10postprocess(&permuted, self.max_det, self.no - 16 * 4)?; // nc = no - 16*4
+        let out = v10postprocess(&permuted, self.max_det, self.no - 16 * 4)?; // nc = no - 16*4
         
-        // Concatenate results: boxes, scores.unsqueeze(-1), labels.unsqueeze(-1)
-        let scores = scores.unsqueeze(2)?; // scores.unsqueeze(-1)
-        let labels = labels.unsqueeze(2)?.to_dtype(DType::F32)?; // labels.unsqueeze(-1).to(boxes.dtype)
-        Tensor::cat(&[&boxes, &scores, &labels], 2)
+        Ok(out)
     }
     
     // Add a method for training that returns both one2one and one2many branches

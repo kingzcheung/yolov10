@@ -1,4 +1,6 @@
-use candle_core::{Result, Tensor, D};
+use std::ops::Rem;
+
+use candle_core::{D, Result, Shape, Tensor};
 
 pub struct TopKOutput {
     pub values: Tensor,
@@ -12,7 +14,13 @@ impl TopKLastDimOp for Tensor {
     fn topk(&self, topk: usize) -> Result<TopKOutput> {
         // Sorted descending
         let sorted_indices = self.arg_sort_last_dim(false)?;
-        let topk_indices = sorted_indices.narrow(D::Minus1, 0, topk)?.contiguous()?;
+        // 获取最后一维的大小
+        let last_dim_size = sorted_indices.dim(D::Minus1)?;
+        // 确保不超过最后一维的实际大小，符合PyTorch的torch.topk行为
+        let actual_topk = topk.min(last_dim_size);
+        let topk_indices = sorted_indices
+            .narrow(D::Minus1, 0, actual_topk)?
+            .contiguous()?;
         Ok(TopKOutput {
             values: self.gather(&topk_indices, D::Minus1)?,
             indices: topk_indices,
@@ -25,83 +33,68 @@ pub trait TensorOps {
     /// Broadcast remainder operation, equivalent to torch.remainder with broadcasting
     fn broadcast_rem(&self, other: &Tensor) -> Result<Tensor>;
 }
-
 impl TensorOps for Tensor {
     fn broadcast_rem(&self, other: &Tensor) -> Result<Tensor> {
-        // 获取两个张量的形状
-        let lhs_shape = self.dims();
-        let rhs_shape = other.dims();
-        
-        // 检查是否可以广播
-        if !can_broadcast(lhs_shape, rhs_shape) {
-            return Err(Error::ShapeMismatchBinaryOp {
-                lhs: lhs_shape.to_vec(),
-                rhs: rhs_shape.to_vec(),
-            }
-            .bt());
-        }
-        
-        // 广播两个张量到相同的形状
-        let broadcast_shape = broadcast_shape(lhs_shape, rhs_shape)?;
-        let lhs_broadcasted = if lhs_shape != broadcast_shape {
-            self.broadcast_as(&broadcast_shape)?
-        } else {
-            self.clone()
-        };
-        
-        let rhs_broadcasted = if rhs_shape != broadcast_shape {
-            other.broadcast_as(&broadcast_shape)?
-        } else {
-            other.clone()
-        };
-        
-        // 执行求余运算
-        lhs_broadcasted.rem(&rhs_broadcasted)
+        // 获取广播后的形状
+        let broadcast_shape = broadcast_shape(self.shape(), other.shape())?;
+
+        // 对两个张量进行广播扩展
+        let self_expanded = self.expand(&broadcast_shape)?;
+        let other_expanded = other.expand(&broadcast_shape)?;
+
+        // 转换为二维数组进行逐元素取模运算
+        let self_data = self_expanded.to_vec2::<u32>()?;
+        let other_data = other_expanded.to_vec2::<u32>()?;
+
+        // 执行逐元素取模运算
+        let result: Vec<Vec<u32>> = self_data
+            .into_iter()
+            .zip(other_data.into_iter())
+            .map(|(row1, row2)| {
+                row1.into_iter().zip(row2.into_iter())
+                    .map(|(a, b)| a % b)
+                    .collect()
+            })
+            .collect();
+
+        // 将结果展平并重塑为原来的形状
+        let flat_result: Vec<u32> = result.into_iter().flatten().collect();
+        Tensor::from_vec(flat_result, &broadcast_shape, self.device())
     }
 }
 
-// 辅助方法：检查两个形状是否可以广播
-fn can_broadcast(shape1: &[usize], shape2: &[usize]) -> bool {
-    let mut s1 = shape1.iter().rev();
-    let mut s2 = shape2.iter().rev();
-    
-    loop {
-        match (s1.next(), s2.next()) {
-            (Some(&d1), Some(&d2)) => {
-                if d1 != d2 && d1 != 1 && d2 != 1 {
-                    return false;
-                }
-            }
-            (Some(_), None) | (None, Some(_)) => break,
-            (None, None) => break,
-        }
-    }
-    true
-}
 
-// 辅助方法：计算广播后的形状
-fn broadcast_shape(shape1: &[usize], shape2: &[usize]) -> Result<Vec<usize>> {
-    let len1 = shape1.len();
-    let len2 = shape2.len();
-    let max_len = len1.max(len2);
-    
+/// Helper function to compute broadcast shape following PyTorch's broadcasting rules
+fn broadcast_shape(shape1: &Shape, shape2: &Shape) -> Result<Shape> {
+    let dims1 = shape1.dims();
+    let dims2 = shape2.dims();
+    let max_len = dims1.len().max(dims2.len());
+
     let mut result = Vec::with_capacity(max_len);
-    
+
+    // Pad the shorter dimension list with leading 1s
     for i in 0..max_len {
-        let d1 = if i < len1 { shape1[len1 - 1 - i] } else { 1 };
-        let d2 = if i < len2 { shape2[len2 - 1 - i] } else { 1 };
-        
-        if d1 == d2 || d1 == 1 || d2 == 1 {
-            result.push(d1.max(d2));
+        let dim1 = if i < max_len - dims1.len() {
+            1
         } else {
-            return Err(Error::ShapeMismatchBinaryOp {
-                lhs: shape1.to_vec(),
-                rhs: shape2.to_vec(),
-            }
-            .bt());
+            dims1[i - (max_len - dims1.len())]
+        };
+        let dim2 = if i < max_len - dims2.len() {
+            1
+        } else {
+            dims2[i - (max_len - dims2.len())]
+        };
+
+        // Check if dimensions are compatible for broadcasting
+        if dim1 != dim2 && dim1 != 1 && dim2 != 1 {
+            return Err(candle_core::Error::Msg(format!(
+                "Shapes {:?} and {:?} are not broadcastable",
+                shape1, shape2
+            )));
         }
+
+        result.push(dim1.max(dim2));
     }
-    
-    result.reverse();
-    Ok(result)
+
+    Ok(Shape::from(result))
 }
