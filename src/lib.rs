@@ -11,6 +11,9 @@ use ort::{
     value::TensorRef,
 };
 
+pub const IMAGENET_MEAN: [f32; 3] = [0.485f32, 0.456, 0.406];
+pub const IMAGENET_STD: [f32; 3] = [0.229f32, 0.224, 0.225];
+
 pub mod yolov10;
 
 #[cfg(feature = "coreml")]
@@ -62,6 +65,8 @@ const COLOR: [image::Rgb<u8>; 20] = [
     Rgb([128, 128, 128]), // 灰色
     Rgb([0, 0, 0]),       // 黑色
 ];
+
+
 
 /// 检测框结构体
 #[derive(Debug, Clone)]
@@ -163,7 +168,7 @@ impl<'a> InferenceEngine<'a> {
         // 获取输出数据
 
         let (_output_shape, output_data) = outputs["output0"].try_extract_tensor::<f32>()?;
-        // println!("输出张量形状: {:?}", _output_shape);
+        println!("输出张量形状: {:?}", _output_shape);
         let output_vec: Vec<f32> = output_data.to_vec();
         // println!("{:?}", output_vec);
         let detections = filter_detections(
