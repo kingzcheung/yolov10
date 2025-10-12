@@ -2,7 +2,7 @@ use crate::yolov10::op::{TensorOps, TopKLastDimOp, TopKOutput};
 
 use super::{block::Dfl, conv::ConvBlock};
 use candle_core::{D, DType, IndexOp, Result, Tensor};
-use candle_nn::{conv2d, seq, Conv2d, Module, VarBuilder};
+use candle_nn::{Conv2d, Module, VarBuilder, conv2d, seq};
 
 fn make_anchors(
     xs0: &Tensor,
@@ -52,54 +52,56 @@ fn v10postprocess(preds: &Tensor, max_det: usize, nc: usize) -> Result<Tensor> {
     assert!(4 + nc == preds_shape[preds_shape.len() - 1]);
 
     let batch_size = preds_shape[0];
-    
+
     // Split boxes and scores
     let boxes = preds.i((.., .., ..4))?;
     let scores = preds.i((.., .., 4..))?;
 
     let amax_scores = scores.max(D::Minus1)?;
-        
+
     // max_scores, index = torch.topk(max_scores, max_det, dim=-1)
-    let TopKOutput { values: _max_scores, indices: topk_indices} =  amax_scores.topk(max_det)?;
+    let TopKOutput {
+        values: _max_scores,
+        indices: topk_indices,
+    } = amax_scores.topk(max_det)?;
 
     // println!("max_scores: {:?}",max_scores.shape());// max_scores: [1, 300]
     // println!("topk_indices: {:?}",topk_indices.shape());// topk_indices: [1, 300]
 
     let index = topk_indices.unsqueeze(D::Minus1)?; // Equivalent to index.unsqueeze(-1)
-    
 
     let boxes = boxes.contiguous()?.gather(&index.repeat((1, 1, 4))?, 1)?;
     let scores = scores.contiguous()?.gather(&index.repeat((1, 1, nc))?, 1)?;
 
-    
     // scores, index = torch.topk(scores.flatten(1), max_det, dim=-1)
     let scores_flat = scores.flatten(1, 2)?;
-    let TopKOutput { values: scores, indices: index } = scores_flat.topk(max_det)?;
-    
+    let TopKOutput {
+        values: scores,
+        indices: index,
+    } = scores_flat.topk(max_det)?;
+
     // println!("index: {:?}",index.shape());//boxes: [1, 300]
     // println!("scores: {:?}",scores.shape());//scores: [1, 300]
 
-    let i = Tensor::arange(0, batch_size as u32, preds.device())?
-    .unsqueeze(D::Minus1)?;
+    let i = Tensor::arange(0, batch_size as u32, preds.device())?.unsqueeze(D::Minus1)?;
 
-    println!("i: {:?}",i.shape());//scores: [1, 300]
-
-    
     let nc_tensor = Tensor::from_slice(&[nc as u32], 1, scores.device())?;
-    // index = index // nc
     let index_div = index.broadcast_div(&nc_tensor)?;
-    let boxes_gathered = boxes.gather(&index_div.unsqueeze(2)?, 1)?;  // [batch_size, max_det, 4]
 
-    // scores[..., None]
-    let scores_expanded = scores.unsqueeze(2)?;  // [batch_size, max_det, 1]
 
-    // (index % nc)[..., None].float()
-let index_mod = index.broadcast_rem(&nc_tensor)?;  // index % nc
-let index_mod_expanded = index_mod.unsqueeze(2)?.to_dtype(DType::F32)?;  // [batch_size, max_det, 1]
+    // 使用 gather 代替高级索引 boxes[i, index // nc]
+    let boxes_gathered = boxes.gather(&index_div.unsqueeze(2)?, 1)?; // [batch_size, max_det, 4]
 
-// Concatenate along last dimension
-let result = Tensor::cat(&[&boxes_gathered, &scores_expanded, &index_mod_expanded], 2)?;
-    
+    // scores[..., None] - 添加新轴
+    let scores_expanded = scores.unsqueeze(2)?; // [batch_size, max_det, 1]
+
+    // (index % nc)[..., None].float() - 取模并添加新轴
+    let index_mod = index.broadcast_rem(&nc_tensor)?; // index % nc
+    let index_mod_expanded = index_mod.unsqueeze(2)?.to_dtype(DType::F32)?; // [batch_size, max_det, 1]
+
+    // 在最后一个维度上连接所有张量
+    let result = Tensor::cat(&[&boxes_gathered, &scores_expanded, &index_mod_expanded], 2)?;
+
     Ok(result)
 }
 
@@ -115,14 +117,14 @@ impl Cv3 {
         // 第一个Sequential: Conv(x, x, 3, g=x), Conv(x, c3, 1)
         let seq1_0 = ConvBlock::load(vb.pp("0.0"), x, x, 3, 1, None, Some(x), true)?;
         let seq1_1 = ConvBlock::load(vb.pp("0.1"), x, c3, 1, 1, None, None, true)?;
-        
+
         // 第二个Sequential: Conv(c3, c3, 3, g=c3), Conv(c3, c3, 1)
         let seq2_0 = ConvBlock::load(vb.pp("1.0"), c3, c3, 3, 1, None, Some(c3), true)?;
         let seq2_1 = ConvBlock::load(vb.pp("1.1"), c3, c3, 1, 1, None, None, true)?;
-        
+
         // 最后的卷积层: Conv2d(c3, nc, 1)
         let conv = conv2d(c3, nc, 1, Default::default(), vb.pp("2"))?;
-        
+
         Ok(Self {
             seq1: (seq1_0, seq1_1),
             seq2: (seq2_0, seq2_1),
@@ -156,8 +158,8 @@ impl V10DetectionHead {
     pub fn load(vb: VarBuilder, nc: usize, filters: (usize, usize, usize)) -> Result<Self> {
         let reg_max = 16;
         let dfl = Dfl::load(vb.pp("model.23.dfl"), reg_max)?;
-        
-        let c2: usize = usize::max(usize::max(16,filters.0 / 4), reg_max * 4);
+
+        let c2: usize = usize::max(usize::max(16, filters.0 / 4), reg_max * 4);
         let c3 = usize::max(filters.0, usize::min(nc, 100));
 
         let cv3 = [
@@ -165,7 +167,6 @@ impl V10DetectionHead {
             Cv3::load(vb.pp("model.23.cv3.1"), filters.1, c3, nc)?,
             Cv3::load(vb.pp("model.23.cv3.2"), filters.2, c3, nc)?,
         ];
-
 
         let cv2 = [
             Self::load_cv2(vb.pp("model.23.cv2.0"), c2, reg_max, filters.0)?,
@@ -177,7 +178,7 @@ impl V10DetectionHead {
             Self::load_cv2(vb.pp("model.23.one2one_cv2.1"), c2, reg_max, filters.1)?,
             Self::load_cv2(vb.pp("model.23.one2one_cv2.2"), c2, reg_max, filters.2)?,
         ];
-         let one2one_cv3 = [
+        let one2one_cv3 = [
             Cv3::load(vb.pp("model.23.one2one_cv3.0"), filters.0, c3, nc)?,
             Cv3::load(vb.pp("model.23.one2one_cv3.1"), filters.1, c3, nc)?,
             Cv3::load(vb.pp("model.23.one2one_cv3.2"), filters.2, c3, nc)?,
@@ -189,13 +190,13 @@ impl V10DetectionHead {
             dfl,
             one2one_cv2,
             one2one_cv3,
-            ch:reg_max,
+            ch: reg_max,
             no,
             max_det: 300, // Default value
             span: tracing::span!(tracing::Level::TRACE, "detection-head"),
         })
     }
-    
+
     // fn load_cv3(
     //     vb: VarBuilder,
     //     c1: usize,
@@ -236,7 +237,7 @@ impl V10DetectionHead {
             let xs_3 = cv3[i].forward(xs)?;
             Tensor::cat(&[&xs_2, &xs_3], 1)
         };
-        
+
         let ys0 = forward_cv(xs0, 0)?;
         let ys1 = forward_cv(xs1, 1)?;
         let ys2 = forward_cv(xs2, 2)?;
@@ -270,24 +271,41 @@ impl V10DetectionHead {
 
     pub fn forward(&self, xs0: &Tensor, xs1: &Tensor, xs2: &Tensor) -> Result<Tensor> {
         // For inference, we only use the one2one branch
-        let one2one = self.forward_feat(xs0, xs1, xs2, self.one2one_cv2.clone(), self.one2one_cv3.clone())?;
+        let one2one = self.forward_feat(
+            xs0,
+            xs1,
+            xs2,
+            self.one2one_cv2.clone(),
+            self.one2one_cv3.clone(),
+        )?;
         let one2one_result = self.forward_i(&one2one.0, &one2one.1, &one2one.2)?;
-        
+
         // Apply v10postprocess
         let permuted = one2one_result.transpose(1, 2)?; // Permute to match PyTorch's permute(0, 2, 1)
         let out = v10postprocess(&permuted, self.max_det, self.no - 16 * 4)?; // nc = no - 16*4
-        
+
         Ok(out)
     }
-    
+
     // Add a method for training that returns both one2one and one2many branches
-    pub fn forward_train(&self, xs0: &Tensor, xs1: &Tensor, xs2: &Tensor) -> Result<(Tensor, Tensor)> {
+    pub fn forward_train(
+        &self,
+        xs0: &Tensor,
+        xs1: &Tensor,
+        xs2: &Tensor,
+    ) -> Result<(Tensor, Tensor)> {
         let one2many = self.forward_feat(xs0, xs1, xs2, self.cv2.clone(), self.cv3.clone())?;
         let one2many_out = self.forward_i(&one2many.0, &one2many.1, &one2many.2)?;
-        
-        let one2one = self.forward_feat(xs0, xs1, xs2, self.one2one_cv2.clone(), self.one2one_cv3.clone())?;
+
+        let one2one = self.forward_feat(
+            xs0,
+            xs1,
+            xs2,
+            self.one2one_cv2.clone(),
+            self.one2one_cv3.clone(),
+        )?;
         let one2one_out = self.forward_i(&one2one.0, &one2one.1, &one2one.2)?;
-        
+
         Ok((one2many_out, one2one_out))
     }
 }
