@@ -35,23 +35,25 @@ fn make_anchors(
     Ok((anchor_points, stride_tensor))
 }
 
-fn dist2bbox(distance: &Tensor, anchor_points: &Tensor) -> Result<Tensor> {
+fn dist2bbox(distance: &Tensor, anchor_points: &Tensor, xywh: bool) -> Result<Tensor> {
     let chunks = distance.chunk(2, 1)?;
     let lt = &chunks[0];
     let rb = &chunks[1];
     let x1y1 = anchor_points.sub(lt)?;
     let x2y2 = anchor_points.add(rb)?;
     let c_xy = ((&x1y1 + &x2y2)? * 0.5)?;
-    let wh = (&x2y2 - &x1y1)?;
-    Tensor::cat(&[c_xy, wh], 1)
+    if xywh {
+        let wh = (&x2y2 - &x1y1)?;
+        Tensor::cat(&[c_xy, wh], 1)
+    } else {
+        Tensor::cat(&[x1y1, x2y2], 1)
+    }
 }
 
 /// preds: Tensor[[1, 8400, 84], f32]
 fn v10postprocess(preds: &Tensor, max_det: usize, nc: usize) -> Result<Tensor> {
     let preds_shape = preds.dims();
     assert!(4 + nc == preds_shape[preds_shape.len() - 1]);
-
-    let batch_size = preds_shape[0];
 
     // Split boxes and scores
     let boxes = preds.i((.., .., ..4))?;
@@ -83,15 +85,12 @@ fn v10postprocess(preds: &Tensor, max_det: usize, nc: usize) -> Result<Tensor> {
     // println!("index: {:?}",index.shape());//boxes: [1, 300]
     // println!("scores: {:?}",scores.shape());//scores: [1, 300]
 
-    let i = Tensor::arange(0, batch_size as u32, preds.device())?.unsqueeze(D::Minus1)?;
-
     let nc_tensor = Tensor::from_slice(&[nc as u32], 1, scores.device())?;
     let index_div = index.broadcast_div(&nc_tensor)?;
 
-
     // 使用 gather 代替高级索引 boxes[i, index // nc]
-    let boxes_gathered = boxes.gather(&index_div.unsqueeze(2)?, 1)?; // [batch_size, max_det, 4]
-
+    let boxes_indices = index_div.unsqueeze(2)?.repeat((1, 1, 4))?; // [batch_size, max_det, 4]
+    let boxes_gathered = boxes.gather(&boxes_indices, 1)?; // [batch_size, max_det, 4]
     // scores[..., None] - 添加新轴
     let scores_expanded = scores.unsqueeze(2)?; // [batch_size, max_det, 1]
 
@@ -100,6 +99,8 @@ fn v10postprocess(preds: &Tensor, max_det: usize, nc: usize) -> Result<Tensor> {
     let index_mod_expanded = index_mod.unsqueeze(2)?.to_dtype(DType::F32)?; // [batch_size, max_det, 1]
 
     // 在最后一个维度上连接所有张量
+    // python: torch.cat([boxes[i, index // nc], scores[..., None], (index % nc)[..., None].float()], dim=-1)
+    // 最后一维应该是 4 + 1 + 1 = 6
     let result = Tensor::cat(&[&boxes_gathered, &scores_expanded, &index_mod_expanded], 2)?;
 
     Ok(result)
@@ -263,7 +264,7 @@ impl V10DetectionHead {
         let box_ = x_cat.i((.., ..self.ch * 4))?;
         let cls = x_cat.i((.., self.ch * 4..))?;
 
-        let dbox = dist2bbox(&self.dfl.forward(&box_)?, &anchors)?;
+        let dbox = dist2bbox(&self.dfl.forward(&box_)?, &anchors,true)?;
         let dbox = dbox.broadcast_mul(&strides)?;
         let pred = Tensor::cat(&[dbox, candle_nn::ops::sigmoid(&cls)?], 1)?;
         Ok(pred)

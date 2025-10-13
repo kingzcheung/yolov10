@@ -2,9 +2,12 @@ use std::error::Error;
 
 use candle_core::{DType, Tensor};
 use candle_nn::VarBuilder;
-use yolov10::yolov10::{Multiples, YoloV10};
+use yolov10::{
+    draw_labels, filter_detections,
+    yolov10::{Multiples, YoloV10},
+};
 fn main() -> Result<(), Box<dyn Error>> {
-    let input_data = include_bytes!("../testdata/bus.jpg");
+    let input_data = include_bytes!("../testdata/zidane.jpg");
     let device = candle_core::Device::cuda_if_available(0)?;
 
     let vb = unsafe {
@@ -50,8 +53,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     // let xs = vec![0.0f32; 640 * 640 * 3];
     // let xs = candle_core::Tensor::from_vec(xs, (1, 3, 640, 640), &device)?;
     let output = yolo.forward(&image_t)?;
-
-
     println!("{:?}", output.shape());
+
+    // 将 output 展平为一维张量，并转换为 Vec<f32>
+    let output_vec: Vec<f32> = output.flatten_all()?.to_vec1()?;
+
+    let results = filter_detections(
+        &output_vec,
+        0.3,
+        640,
+        640,
+        original_image.width() as u32,
+        original_image.height() as u32,
+    );
+
+    let img = draw_labels(&original_image, &results);
+
+    img.save_with_format("res.jpg", image::ImageFormat::Jpeg)
+        .unwrap();
+
     Ok(())
 }

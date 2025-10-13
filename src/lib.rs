@@ -28,8 +28,8 @@ use ort::execution_providers::DirectMLExecutionProvider;
 #[cfg(feature = "tensorrt")]
 use ort::execution_providers::TensorRTExecutionProvider;
 
-use std::error::Error;
 use std::borrow::Cow;
+use std::error::Error;
 
 #[rustfmt::skip]
 pub const YOLOV10_CLASS_LABELS: [&str; 80] = [
@@ -66,8 +66,6 @@ const COLOR: [image::Rgb<u8>; 20] = [
     Rgb([0, 0, 0]),       // 黑色
 ];
 
-
-
 /// 检测框结构体
 #[derive(Debug, Clone)]
 pub struct Detection {
@@ -101,13 +99,16 @@ impl<'a> InferenceEngine<'a> {
             ])?
             .commit_from_file(model_path)?;
 
-        Ok(Self { 
-            session, 
-            class_labels: None
+        Ok(Self {
+            session,
+            class_labels: None,
         })
     }
 
-    pub fn new_with_labels(model_path: &str, class_labels: &'a[&str]) -> Result<Self, Box<dyn Error>> {
+    pub fn new_with_labels(
+        model_path: &str,
+        class_labels: &'a [&str],
+    ) -> Result<Self, Box<dyn Error>> {
         let session = Session::builder()?
             .with_inter_threads(1)?
             .with_optimization_level(GraphOptimizationLevel::Level3)?
@@ -122,13 +123,12 @@ impl<'a> InferenceEngine<'a> {
                 TensorRTExecutionProvider::default().build(),
             ])?
             .commit_from_file(model_path)?;
-        
-        Ok(Self { 
-            session, 
-            class_labels: Some(class_labels.iter().map(|&s| Cow::Borrowed(s)).collect()) 
+
+        Ok(Self {
+            session,
+            class_labels: Some(class_labels.iter().map(|&s| Cow::Borrowed(s)).collect()),
         })
     }
-
 
     /// 预处理图像
     #[allow(clippy::type_complexity)]
@@ -152,7 +152,11 @@ impl<'a> InferenceEngine<'a> {
     }
 
     /// 运行推理
-    pub fn run_inference(&mut self, buffer: &[u8], confidence_threshold: f32) -> Result<Vec<Detection>, Box<dyn Error>> {
+    pub fn run_inference(
+        &mut self,
+        buffer: &[u8],
+        confidence_threshold: f32,
+    ) -> Result<Vec<Detection>, Box<dyn Error>> {
         // 创建输入张量
 
         let img = image::load_from_memory(buffer)?;
@@ -172,12 +176,12 @@ impl<'a> InferenceEngine<'a> {
         let output_vec: Vec<f32> = output_data.to_vec();
         // println!("{:?}", output_vec);
         let detections = filter_detections(
-            &output_vec, 
-            confidence_threshold, 
-            640, 
-            640, 
-            orig_width, 
-            orig_height
+            &output_vec,
+            confidence_threshold,
+            640,
+            640,
+            orig_width,
+            orig_height,
         );
 
         Ok(detections)
@@ -193,7 +197,15 @@ pub fn filter_detections(
     orig_width: u32,
     orig_height: u32,
 ) -> Vec<Detection> {
-    filter_detections_with_labels(results, confidence_threshold, img_width, img_height, orig_width, orig_height, None)
+    filter_detections_with_labels(
+        results,
+        confidence_threshold,
+        img_width,
+        img_height,
+        orig_width,
+        orig_height,
+        None,
+    )
 }
 
 /// 过滤检测结果
@@ -220,7 +232,7 @@ pub fn filter_detections_with_labels(
     // 获取类别标签引用或使用默认标签
     let labels: &[&str] = class_labels.unwrap_or(YOLOV10_CLASS_LABELS.as_slice());
 
-    // 计算缩放和填充因子 
+    // 计算缩放和填充因子
     let scale = (img_width as f32 / orig_width as f32).min(img_height as f32 / orig_height as f32);
     let new_width = (orig_width as f32 * scale) as u32;
     let new_height = (orig_height as f32 * scale) as u32;
@@ -238,8 +250,10 @@ pub fn filter_detections_with_labels(
         let class_id = results[base_index + 5] as usize;
 
         // 打印原始值用于调试
-        // println!("检测框 {}: left={}, top={}, right={}, bottom={}, 置信度={}, 类别ID={}",
-        //          i, left, top, right, bottom, confidence, class_id);
+        // println!(
+        //     "检测框 {}: left={}, top={}, right={}, bottom={}, 置信度={}, 类别ID={}",
+        //     i, left, top, right, bottom, confidence, class_id
+        // );
 
         // 检查置信度是否有效
         if !(0.0..=1.0).contains(&confidence) {
@@ -256,10 +270,18 @@ pub fn filter_detections_with_labels(
         // 应用置信度阈值
         if confidence >= confidence_threshold {
             // 移除填充并缩放到原始图像尺寸
-            let left = (left - pad_x as f32) / scale;
-            let top = (top - pad_y as f32) / scale;
-            let right = (right - pad_x as f32) / scale;
-            let bottom = (bottom - pad_y as f32) / scale;
+            let mut left = (left - pad_x as f32) / scale;
+            let mut top = (top - pad_y as f32) / scale;
+            let mut right = (right - pad_x as f32) / scale;
+            let mut bottom = (bottom - pad_y as f32) / scale;
+
+            // 确保坐标顺序正确（left < right, top < bottom）
+            if left > right {
+                std::mem::swap(&mut left, &mut right);
+            }
+            if top > bottom {
+                std::mem::swap(&mut top, &mut bottom);
+            }
 
             let x = left as u32;
             let y = top as u32;
@@ -275,9 +297,7 @@ pub fn filter_detections_with_labels(
                     class_name: labels[class_id].to_string(),
                 });
             } else {
-                println!(
-                    "跳过无效边界框: ({x}, {y}) - 宽度: {width}, 高度: {height}"
-                );
+                println!("跳过无效边界框: ({x}, {y}) - 宽度: {width}, 高度: {height}");
             }
         }
     }
@@ -308,11 +328,12 @@ pub fn draw_labels(image: &DynamicImage, detections: &[Detection]) -> DynamicIma
 
         let color = COLOR[detection.class_id % COLOR.len()];
 
-
         // 绘制多个略微偏移的矩形来创建粗线效果
         for offset_y in -1..=1 {
             for offset_x in -1..=1 {
-                let offset_rect = imageproc::rect::Rect::at(x as i32 + offset_x, y as i32 + offset_y).of_size(actual_width, actual_height);
+                let offset_rect =
+                    imageproc::rect::Rect::at(x as i32 + offset_x, y as i32 + offset_y)
+                        .of_size(actual_width, actual_height);
                 draw_hollow_rect_mut(&mut image, offset_rect, color);
             }
         }
