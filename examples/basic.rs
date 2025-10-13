@@ -1,5 +1,6 @@
-use yolov10::{draw_labels, InferenceEngine};
 use std::error::Error;
+
+use yolov10::{draw_labels, onnx::InferenceEngine};
 
 fn main() -> Result<(), Box<dyn Error>> {
     // 加载模型

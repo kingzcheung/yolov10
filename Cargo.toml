@@ -17,27 +17,31 @@ ndarray = "0.16.1"
 image = "0.25.8"
 imageproc = "0.25.0"
 ab_glyph = "0.2.31"
-ort = { version = "=2.0.0-rc.10", features = ["ndarray"] }
-candle-nn = "0.9.1"
-candle-core = "0.9.1"
-tracing = "0.1.41"
+candle-nn = {version="^0.9.0", optional = true}
+candle-core = {version="^0.9.0", optional = true}
+tracing = {version = "^0.1.41",optional = true}
 
 [features]
-default = ["cpu"]
-cuda = ["ort/cuda"]
-cpu = []
-coreml = ["ort/coreml"]
-directml = ["ort/directml"]
-tensorrt = ["ort/tensorrt"]
+default = ["candle"]
+candle = ["candle-core", "candle-nn","tracing"]
+candle-cuda = ["candle-core/cuda", "candle-nn/cuda","tracing"]
+onnx = ["ort"]
+onnx-coreml = ["ort/coreml"]
+onnx-directml = ["ort/directml"]
+onnx-tensorrt = ["ort/tensorrt"]
+onnx-cuda = ["ort/cuda"]
 
 [target.'cfg(target_os = "macos")'.dependencies.ort]
 version = "=2.0.0-rc.10"
 features = ["ndarray", "coreml"]
+optional = true
 
 [target.'cfg(windows)'.dependencies.ort]
 version = "=2.0.0-rc.10"
 features = ["ndarray", "directml"]
+optional = true
 
 [target.'cfg(target_os = "linux")'.dependencies.ort]
 version = "=2.0.0-rc.10"
 features = ["ndarray", "cuda",]
+optional = true
