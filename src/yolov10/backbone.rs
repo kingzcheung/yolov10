@@ -131,13 +131,17 @@ impl Backbone {
 
     pub fn forward(&self, xs: &Tensor) -> Result<(Tensor, Tensor, Tensor)> {
         let _enter = self.span.enter();
-        let x1 = self.b1_1.forward(&self.b1_0.forward(xs)?)?;
+        let x0 = self.b1_0.forward(xs)?;
+        let x1 = self.b1_1.forward(&x0)?;
+        
         let x2 = self
             .b2_2
             .forward(&self.b2_1.forward(&self.b2_0.forward(&x1)?)?)?;
+        
         let x3 = self.b3_1.forward(&self.b3_0.forward(&x2)?)?;
+        
         let x4 = self.b4_1.forward(&self.b4_0.forward(&x3)?)?;
-        let x5 = self.b5.forward(&x4)?;
+        let x5: Tensor = self.b5.forward(&x4)?;
         let x5 = self.psa.forward(&x5)?; 
         Ok((x2, x3, x5))
     }
