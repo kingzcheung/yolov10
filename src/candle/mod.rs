@@ -1,6 +1,6 @@
-use candle_nn::{Module, VarBuilder};
-use candle_core::{Result, Tensor};
-use crate::yolov10::{backbone::Backbone, head::V10DetectionHead, neck::YoloNeck};
+pub use candle_nn::{VarBuilder};
+pub use candle_core::{Result, Tensor,DType,Device};
+use crate::candle::{backbone::Backbone, head::V10DetectionHead, neck::YoloNeck};
 
 pub(crate) mod block;
 pub(crate) mod conv;

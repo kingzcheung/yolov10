@@ -1,4 +1,4 @@
-use crate::yolov10::op::{TensorOps, TopKLastDimOp, TopKOutput};
+use crate::candle::op::{TensorOps, TopKLastDimOp, TopKOutput};
 
 use super::{block::Dfl, conv::ConvBlock};
 use candle_core::{D, DType, IndexOp, Result, Tensor};
@@ -269,7 +269,7 @@ impl V10DetectionHead {
 
         
         let dbox = dist2bbox(&self.dfl.forward(&box_)?, &anchors,false)?;
-        println!("dbox:{dbox}");
+        // println!("dbox:{dbox}");
         let dbox = dbox.broadcast_mul(&strides)?;
         let pred = Tensor::cat(&[dbox, candle_nn::ops::sigmoid(&cls)?], 1)?;
         Ok(pred)
@@ -286,7 +286,6 @@ impl V10DetectionHead {
         )?;
         
         let one2one_result = self.forward_i(&one2one.0, &one2one.1, &one2one.2)?;
-        println!("one2one_result: {one2one_result}");
         // Apply v10postprocess
         let permuted = one2one_result.transpose(1, 2)?; // Permute to match PyTorch's permute(0, 2, 1)
         let out = v10postprocess(&permuted, self.max_det, self.no - 16 * 4)?; // nc = no - 16*4

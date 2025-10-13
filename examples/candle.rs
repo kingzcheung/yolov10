@@ -1,44 +1,29 @@
 use std::error::Error;
 
-use candle_core::{DType, Tensor};
 use candle_nn::VarBuilder;
 use yolov10::{
     draw_labels, filter_detections,
-    yolov10::{Multiples, YoloV10},
+    candle::{Multiples, YoloV10,Tensor,DType},
 };
 fn main() -> Result<(), Box<dyn Error>> {
     let input_data = include_bytes!("../testdata/bus.jpg");
-    let device = candle_core::Device::cuda_if_available(0)?;
+    let device = yolov10::candle::Device::cuda_if_available(0)?;
 
     let vb = unsafe {
         VarBuilder::from_mmaped_safetensors(
             &["yolov10s.safetensors"],
-            candle_core::DType::F32,
+            DType::F32,
             &device,
         )
     }?;
 
     let original_image = image::load_from_memory(input_data)?;
-    let (width, height) = {
-        let w = original_image.width() as usize;
-        let h = original_image.height() as usize;
-        if w < h {
-            let w = w * 640 / h;
-            // Sizes have to be divisible by 32.
-            (w / 32 * 32, 640)
-        } else {
-            let h = h * 640 / w;
-            (640, h / 32 * 32)
-        }
-    };
-
-    let width = 640;
-    let height = 640;
+    
 
     let image_t = {
         let img = original_image.resize_exact(
-            width as u32,
-            height as u32,
+            640u32,
+            640u32,
             image::imageops::FilterType::CatmullRom,
         );
         let data = img.to_rgb8().into_raw();

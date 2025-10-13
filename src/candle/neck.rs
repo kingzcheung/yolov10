@@ -1,4 +1,4 @@
-use crate::yolov10::block::C2fCIB;
+use crate::candle::block::C2fCIB;
 use candle_core::Result;
 use candle_core::Tensor;
 use candle_nn::{Module, VarBuilder};
