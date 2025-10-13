@@ -11,7 +11,7 @@ pub struct SCDown {
 
 impl SCDown {
     pub fn load(vb: VarBuilder, c1: usize, c2: usize, k: usize, s: usize) -> Result<Self> {
-        let cv1 = ConvBlock::load(vb.pp("cv1"), c1, c2, 1, 1, None, None, true)?;
+        let cv1 = ConvBlock::load(vb.pp("cv1"), c1, c2, 1, 1, None, Some(1), true)?;
         let cv2 = ConvBlock::load(vb.pp("cv2"), c2, c2, k, s, None, Some(c2), false)?;
         Ok(Self { cv1, cv2 })
     }
@@ -28,7 +28,6 @@ impl Module for SCDown {
 pub struct RepVGGDW {
     conv: ConvBlock,
     conv1: ConvBlock,
-    dim: usize,
 }
 
 impl RepVGGDW {
@@ -38,7 +37,6 @@ impl RepVGGDW {
         Ok(Self {
             conv,
             conv1,
-            dim: ed,
         })
     }
 }
@@ -53,6 +51,7 @@ impl Module for RepVGGDW {
     }
 }
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
 pub struct CIB {
     cv1: Sequential,
@@ -60,15 +59,20 @@ pub struct CIB {
 }
 
 impl CIB {
+    /// c1 (int): Input channels.
+    /// c2 (int): Output channels.
+    /// shortcut (bool): Whether to use shortcut connection.
+    /// e (float): Channel multiplier.
+    /// lk (bool): Whether to use RepVGGDW.
     pub fn load(
         vb: VarBuilder,
         c1: usize,
         c2: usize,
         shortcut: bool,
-        e: usize,
+        e: f64,
         lk: bool,
     ) -> Result<Self> {
-        let c_ = c1 * e;
+        let c_ = (c2 as f64 * e) as usize;
         let mut cv1 = seq();
 
         // Add first two layers
@@ -136,7 +140,12 @@ impl CIB {
 
 impl Module for CIB {
     fn forward(&self, xs: &Tensor) -> Result<Tensor> {
-        self.cv1.forward(xs)
+        let ys = self.cv1.forward(xs)?;
+        if self.add {
+            xs.broadcast_add(&ys)
+        } else {
+            Ok(ys)
+        }
     }
 }
 
@@ -240,13 +249,13 @@ impl C2fCIB {
         e: f64,
     ) -> Result<Self> {
         // Calculate c as in the C2f implementation
-        let c = (c2 as f64 * 0.5) as usize;
+        let c = (c2 as f64 * e) as usize;
         let cv1 = ConvBlock::load(vb.pp("cv1"), c1, 2 * c, 1, 1, None, Some(g), true)?;
         let cv2 = ConvBlock::load(vb.pp("cv2"), (2 + n) * c, c2, 1, 1, None, Some(g), true)?;
         let mut cib = Vec::with_capacity(n);
         for idx in 0..n {
             // CIB(self.c, self.c, shortcut, e=1.0, lk=lk)
-            let b = CIB::load(vb.pp(format!("m.{idx}")), c, c, shortcut, 1, lk)?;
+            let b = CIB::load(vb.pp(format!("m.{idx}")), c, c, shortcut, 1f64, lk)?;
             cib.push(b)
         }
         Ok(Self {
@@ -283,6 +292,7 @@ pub struct Dfl {
 impl Dfl {
     pub fn load(vb: VarBuilder, num_classes: usize) -> Result<Self> {
         let conv = conv2d_no_bias(num_classes, 1, 1, Default::default(), vb.pp("conv"))?;
+        
         Ok(Self {
             conv,
             num_classes,
@@ -389,16 +399,16 @@ impl Psa {
     pub fn load(vb: VarBuilder, c1: usize,c2:usize,e: f64) ->Result<Self> {
         assert_eq!(c1, c2);
         let c = (c1 as f64 * e) as usize;
-        let cv1 = ConvBlock::load(vb.pp("cv1"), c1, 2*c, 1, 1, None, None, false)?;
-        let cv2 = ConvBlock::load(vb.pp("cv2"), 2*c, c1, 1, 1, None, None, false)?;
+        let cv1 = ConvBlock::load(vb.pp("cv1"), c1, 2*c, 1, 1, None, Some(1), true)?;
+        let cv2 = ConvBlock::load(vb.pp("cv2"), 2*c, c1, 1, 1, None, Some(1), true)?;
 
         let attn = Attention::load(vb.pp("attn"), c, c/64, 0.5)?;
 
         let ffn = seq()
         .add(
-            ConvBlock::load(vb.pp("ffn.0"), c, c*2, 1, 1, None, None, true)?
+            ConvBlock::load(vb.pp("ffn.0"), c, c*2, 1, 1, None, Some(1), true)?
         )
-        .add(ConvBlock::load(vb.pp("ffn.1"), c*2,c, 1, 1, None, None, false)?);
+        .add(ConvBlock::load(vb.pp("ffn.1"), c*2,c, 1, 1, None, Some(1), false)?);
 
 
         Ok(
@@ -413,19 +423,27 @@ impl Psa {
     }
 }
 impl Module for Psa {
+
+        //a, b = self.cv1(x).split((self.c, self.c), dim=1)
+        // b = b + self.attn(b)
+        // b = b + self.ffn(b)
+        // return self.cv2(torch.cat((a, b), 1))
     fn forward(&self, xs: &Tensor) -> Result<Tensor> {
         let cv1_output = self.cv1.forward(xs)?;
         let a = cv1_output.narrow(1, 0, self.c)?;
         let b = cv1_output.narrow(1, self.c, self.c)?;
-        
+
         let attn = self.attn.forward(&b)?;
         let b = b.broadcast_add(&attn)?;
+        
 
         let ffn = self.ffn.forward(&b)?;
         let b = b.broadcast_add(&ffn)?;
 
         let cat = Tensor::cat(&[a,b], 1)?;
-        self.cv2.forward(&cat)
+        let ys = self.cv2.forward(&cat)?;
+        
+        Ok(ys)
     }
 }
 
@@ -441,8 +459,8 @@ pub(crate) struct Sppf {
 impl Sppf {
     pub fn load(vb: VarBuilder, c1: usize, c2: usize, k: usize) -> Result<Self> {
         let c_ = c1 / 2;
-        let cv1 = ConvBlock::load(vb.pp("cv1"), c1, c_, 1, 1, None,None,true)?;
-        let cv2 = ConvBlock::load(vb.pp("cv2"), c_ * 4, c2, 1, 1, None,None,true)?;
+        let cv1 = ConvBlock::load(vb.pp("cv1"), c1, c_, 1, 1, None,Some(1),true)?;
+        let cv2 = ConvBlock::load(vb.pp("cv2"), c_ * 4, c2, 1, 1, None,Some(1),true)?;
         Ok(Self {
             cv1,
             cv2,

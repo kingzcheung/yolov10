@@ -270,18 +270,12 @@ pub fn filter_detections_with_labels(
         // 应用置信度阈值
         if confidence >= confidence_threshold {
             // 移除填充并缩放到原始图像尺寸
-            let mut left = (left - pad_x as f32) / scale;
-            let mut top = (top - pad_y as f32) / scale;
-            let mut right = (right - pad_x as f32) / scale;
-            let mut bottom = (bottom - pad_y as f32) / scale;
+            let  left = (left - pad_x as f32) / scale;
+            let  top = (top - pad_y as f32) / scale;
+            let  right = (right - pad_x as f32) / scale;
+            let  bottom = (bottom - pad_y as f32) / scale;
 
-            // 确保坐标顺序正确（left < right, top < bottom）
-            if left > right {
-                std::mem::swap(&mut left, &mut right);
-            }
-            if top > bottom {
-                std::mem::swap(&mut top, &mut bottom);
-            }
+
 
             let x = left as u32;
             let y = top as u32;

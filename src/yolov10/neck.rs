@@ -123,6 +123,7 @@ impl YoloNeck {
         let head_3 = self
             .n6
             .forward(&Tensor::cat(&[&self.n5.forward(&head_2)?, p5], 1)?)?;
+        
         Ok((head_1, head_2, head_3))
     }
 }

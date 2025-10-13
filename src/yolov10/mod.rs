@@ -87,6 +87,7 @@ impl YoloV10 {
     pub fn forward(&self, xs: &Tensor) -> Result<Tensor> {
         let (xs1, xs2, xs3) = self.backbone.forward(xs)?;
         let (xs1, xs2, xs3) = self.neck.forward(&xs1, &xs2, &xs3)?;
+        
         self.head.forward(&xs1, &xs2, &xs3)
     }
     
