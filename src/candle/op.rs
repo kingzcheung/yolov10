@@ -1,5 +1,3 @@
-use std::ops::Rem;
-
 use candle_core::{D, Result, Shape, Tensor};
 
 pub struct TopKOutput {
@@ -28,12 +26,10 @@ impl TopKLastDimOp for Tensor {
     }
 }
 
-/// Extension trait for Tensor operations
-pub trait TensorOps {
-    /// Broadcast remainder operation, equivalent to torch.remainder with broadcasting
+pub trait TensorRemOps {
     fn broadcast_rem(&self, other: &Tensor) -> Result<Tensor>;
 }
-impl TensorOps for Tensor {
+impl TensorRemOps for Tensor {
     fn broadcast_rem(&self, other: &Tensor) -> Result<Tensor> {
         // 获取广播后的形状
         let broadcast_shape = broadcast_shape(self.shape(), other.shape())?;
@@ -49,9 +45,9 @@ impl TensorOps for Tensor {
         // 执行逐元素取模运算
         let result: Vec<Vec<u32>> = self_data
             .into_iter()
-            .zip(other_data.into_iter())
+            .zip(other_data)
             .map(|(row1, row2)| {
-                row1.into_iter().zip(row2.into_iter())
+                row1.into_iter().zip(row2)
                     .map(|(a, b)| a % b)
                     .collect()
             })
@@ -64,7 +60,24 @@ impl TensorOps for Tensor {
 }
 
 
-/// Helper function to compute broadcast shape following PyTorch's broadcasting rules
+
+/// 广播两个张量形状，计算广播后的目标形状
+/// 
+/// 该函数实现了NumPy风格的广播规则，用于确定两个不同形状的张量
+/// 在进行元素级操作时应该广播到的目标形状。
+/// 
+/// # 参数
+/// * `shape1` - 第一个张量的形状引用
+/// * `shape2` - 第二个张量的形状引用
+/// 
+/// # 返回值
+/// * `Ok(Shape)` - 广播成功时返回目标形状
+/// * `Err(Error)` - 当两个形状无法广播时返回错误
+/// 
+/// # 广播规则
+/// 1. 每个维度大小相等，或其中一个为1
+/// 2. 结果形状的每个维度取两个输入维度的最大值
+/// 3. 维度不足的部分视为1
 fn broadcast_shape(shape1: &Shape, shape2: &Shape) -> Result<Shape> {
     let dims1 = shape1.dims();
     let dims2 = shape2.dims();
@@ -72,8 +85,9 @@ fn broadcast_shape(shape1: &Shape, shape2: &Shape) -> Result<Shape> {
 
     let mut result = Vec::with_capacity(max_len);
 
-    // Pad the shorter dimension list with leading 1s
+    // 从右到左对齐两个形状的维度，计算广播后的目标形状
     for i in 0..max_len {
+        // 处理维度长度不同的情况，将较短的形状左侧补1
         let dim1 = if i < max_len - dims1.len() {
             1
         } else {
@@ -85,7 +99,7 @@ fn broadcast_shape(shape1: &Shape, shape2: &Shape) -> Result<Shape> {
             dims2[i - (max_len - dims2.len())]
         };
 
-        // Check if dimensions are compatible for broadcasting
+        // 检查广播兼容性：相同维度或其中一个为1才能广播
         if dim1 != dim2 && dim1 != 1 && dim2 != 1 {
             return Err(candle_core::Error::Msg(format!(
                 "Shapes {:?} and {:?} are not broadcastable",

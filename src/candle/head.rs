@@ -1,4 +1,4 @@
-use crate::candle::op::{TensorOps, TopKLastDimOp, TopKOutput};
+use crate::candle::op::{TensorRemOps, TopKLastDimOp, TopKOutput};
 
 use super::{block::Dfl, conv::ConvBlock};
 use candle_core::{D, DType, IndexOp, Result, Tensor};
@@ -67,11 +67,7 @@ fn v10postprocess(preds: &Tensor, max_det: usize, nc: usize) -> Result<Tensor> {
         indices: topk_indices,
     } = amax_scores.topk(max_det)?;
 
-    // println!("max_scores: {:?}",max_scores.shape());// max_scores: [1, 300]
-    // println!("topk_indices: {:?}",topk_indices.shape());// topk_indices: [1, 300]
-
     let index = topk_indices.unsqueeze(D::Minus1)?; // Equivalent to index.unsqueeze(-1)
-
     let boxes = boxes.contiguous()?.gather(&index.repeat((1, 1, 4))?, 1)?;
     let scores = scores.contiguous()?.gather(&index.repeat((1, 1, nc))?, 1)?;
 

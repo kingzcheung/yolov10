@@ -37,6 +37,7 @@ def export_to_safetensors(model_path, output_path=None):
     # 加载YOLO模型
     print(f"正在加载模型: {model_path}")
     model = YOLO(model_path)
+    print(model.model)
     
     tensors = model.model.state_dict() # type: ignore
     
