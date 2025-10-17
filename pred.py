@@ -3,7 +3,7 @@ from ultralytics import YOLO
 import os
 
 # Check if model file exists
-model_path = "yolov10s.pt"
+model_path = "yolov10n.pt"
 
     # Load a model
 model = YOLO(model_path)  # load a custom trained model
