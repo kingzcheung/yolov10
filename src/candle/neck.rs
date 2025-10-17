@@ -28,12 +28,26 @@ impl Module for Upsample {
 }
 
 #[derive(Debug)]
+pub enum N4 {
+    C2f(C2f),
+    C2fCIB(C2fCIB),
+}
+impl Module for N4 {
+    fn forward(&self, xs: &Tensor) -> Result<Tensor> {
+        match self {
+            N4::C2f(block) => block.forward(xs),
+            N4::C2fCIB(block) => block.forward(xs),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct YoloNeck {
     up: Upsample,
     n1: C2f,
     n2: C2f,
     n3: ConvBlock,
-    n4: C2f,
+    n4: N4,
     n5: SCDown,
     n6: C2fCIB,
     span: tracing::Span,
@@ -68,13 +82,32 @@ impl YoloNeck {
             Some(1),
             true,
         )?;
-        let n4 = C2f::load(
-            vb.pp("model.19"),
-            (768. * w) as usize,
-            (512. * w) as usize,
-            n,
-            false,
-        )?;
+        //x:  - [-1, 3, C2fCIB, [512, True]] # 19 (P4/16-medium)
+        //s:  - [-1, 3, C2f, [512]] # 19 (P4/16-medium)
+        //n:  - [-1, 3, C2f, [512]] # 19 (P4/16-medium)
+        //m:  - [-1, 3, C2fCIB, [512, True]] # 19 (P4/16-medium)
+        //l:  - [-1, 3, C2fCIB, [512, True]] # 19 (P4/16-medium)
+        //b:  - [-1, 3, C2fCIB, [512, True]] # 19 (P4/16-medium)
+        let n4 = if m == Multiples::n() || m == Multiples::s() {
+            N4::C2f(C2f::load(
+                vb.pp("model.19"),
+                (768. * w) as usize,
+                (512. * w) as usize,
+                n,
+                false,
+            )?)
+        } else {
+            N4::C2fCIB(C2fCIB::load(
+                vb.pp("model.19"),
+                (768. * w) as usize,
+                (512. * w) as usize,
+                n,
+                true,
+                false,
+                1,
+                0.5,
+            )?)
+        };
         let n5 = SCDown::load(
             vb.pp("model.20"),
             (512. * w) as usize,
@@ -87,8 +120,8 @@ impl YoloNeck {
             (512. * w * (1. + r)) as usize,
             (512. * w * r) as usize,
             n,
-            false,
             true,
+            m == Multiples::n() || m == Multiples::s(),
             1,
             0.5,
         )?;
@@ -123,7 +156,7 @@ impl YoloNeck {
         let head_3 = self
             .n6
             .forward(&Tensor::cat(&[&self.n5.forward(&head_2)?, p5], 1)?)?;
-        
+
         Ok((head_1, head_2, head_3))
     }
 }

@@ -182,7 +182,7 @@ impl Module for Bottleneck {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct C2f {
+pub struct C2f {
     cv1: ConvBlock,
     cv2: ConvBlock,
     bottleneck: Vec<Bottleneck>,

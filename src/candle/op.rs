@@ -102,8 +102,7 @@ fn broadcast_shape(shape1: &Shape, shape2: &Shape) -> Result<Shape> {
         // 检查广播兼容性：相同维度或其中一个为1才能广播
         if dim1 != dim2 && dim1 != 1 && dim2 != 1 {
             return Err(candle_core::Error::Msg(format!(
-                "Shapes {:?} and {:?} are not broadcastable",
-                shape1, shape2
+                "Shapes {shape1:?} and {shape2:?} are not broadcastable"
             )));
         }
 
