@@ -28,23 +28,25 @@ impl Module for Upsample {
 }
 
 #[derive(Debug)]
-pub enum N4 {
+pub enum N1 {
     C2f(C2f),
     C2fCIB(C2fCIB),
 }
-impl Module for N4 {
+impl Module for N1 {
     fn forward(&self, xs: &Tensor) -> Result<Tensor> {
         match self {
-            N4::C2f(block) => block.forward(xs),
-            N4::C2fCIB(block) => block.forward(xs),
+            N1::C2f(block) => block.forward(xs),
+            N1::C2fCIB(block) => block.forward(xs),
         }
     }
 }
 
+pub type N4 = N1;
+
 #[derive(Debug)]
 pub struct YoloNeck {
     up: Upsample,
-    n1: C2f,
+    n1: N1,
     n2: C2f,
     n3: ConvBlock,
     n4: N4,
@@ -58,13 +60,34 @@ impl YoloNeck {
         let up = Upsample::new(2)?;
         let (w, r, d) = (m.width, m.ratio, m.depth);
         let n = (3. * d).round() as usize;
-        let n1 = C2f::load(
-            vb.pp("model.13"),
-            (512. * w * (1. + r)) as usize,
-            (512. * w) as usize,
-            n,
-            false,
-        )?;
+
+        //n- [-1, 3, C2f, [512]] # 13
+        //s- [-1, 3, C2f, [512]] # 13
+        //m - [-1, 3, C2f, [512]] # 13
+        //l - [-1, 3, C2fCIB, [512, True]] # 13
+        //b - [-1, 3, C2fCIB, [512, True]] # 13
+        //x  - [-1, 3, C2fCIB, [512, True]] # 13
+        let n1 = if m == Multiples::l() || m == Multiples::x() || m == Multiples::b() {
+            N1::C2fCIB(C2fCIB::load(
+                vb.pp("model.13"),
+                (512. * w * (1. + r)) as usize,
+                (512. * w) as usize,
+                n,
+                true,
+                false,
+                1,
+                0.5,
+            )?)
+        } else {
+            N1::C2f(C2f::load(
+                vb.pp("model.13"),
+                (512. * w * (1. + r)) as usize,
+                (512. * w) as usize,
+                n,
+                false,
+            )?)
+        };
+        //model.13.m.0.cv1.conv.weight
         let n2 = C2f::load(
             vb.pp("model.16"),
             (768. * w) as usize,

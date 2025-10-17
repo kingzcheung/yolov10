@@ -19,7 +19,7 @@ pub struct Multiples {
 
 impl Multiples {
     // [depth, width, max_channels]
-    // [0.33, 0.25, 1024] 
+    /// [0.33, 0.25, 1024] 
     pub fn n() -> Self {
         Self {
             depth: 0.33,
@@ -27,7 +27,7 @@ impl Multiples {
             ratio: 2.0,
         }
     }
-    // [0.33, 0.50, 1024]
+    /// [0.33, 0.50, 1024]
     pub fn s() -> Self {
         Self {
             depth: 0.33,
@@ -35,7 +35,7 @@ impl Multiples {
             ratio: 2.0,
         }
     }
-    // [0.67, 0.75, 768] 
+    /// [0.67, 0.75, 768] 
     pub fn m() -> Self {
         Self {
             depth: 0.67,
@@ -43,7 +43,7 @@ impl Multiples {
             ratio: 1.5,
         }
     }
-    //[1.00, 1.00, 512]
+    /// [1.00, 1.00, 512]
     pub fn l() -> Self {
         Self {
             depth: 1.00,
@@ -51,11 +51,20 @@ impl Multiples {
             ratio: 1.0,
         }
     }
-    // [1.00, 1.25, 512]
+    /// [1.00, 1.25, 512]
     pub fn x() -> Self {
         Self {
             depth: 1.00,
             width: 1.25,
+            ratio: 1.0,
+        }
+    }
+
+    ///[0.67, 1.00, 512]
+    pub fn b() -> Self {
+        Self {
+            depth: 0.67,
+            width: 1.0,
             ratio: 1.0,
         }
     }

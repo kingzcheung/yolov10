@@ -37,12 +37,13 @@ def export_to_safetensors(model_path, output_path=None):
     # 加载YOLO模型
     print(f"正在加载模型: {model_path}")
     model = YOLO(model_path)
-    print(model.model,file=open("yolov10s.txt","a"))
+    name = model_path.split(".")[0]
+    print(model.model,file=open(f"{name}.txt","a"))
     
     tensors = model.model.state_dict() # type: ignore
     
     for k, v in tensors.items():
-        print(str(k), v.shape)
+        print(str(k), v.shape, file=open(f"{name}_keys.txt","a"))
     
     # 保存为safetensors格式
     save_model(model.model, output_path) # type: ignore
