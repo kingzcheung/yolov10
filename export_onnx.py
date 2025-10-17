@@ -2,7 +2,7 @@ from ultralytics import YOLO
 import os
 
 # Check if model file exists
-model_path = "yolov10n.pt"
+model_path = "yolov10s.pt"
 
 try:
     # Load a model
