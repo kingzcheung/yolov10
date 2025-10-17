@@ -1,3 +1,5 @@
+#![cfg(feature = "onnx")]
+
 use std::error::Error;
 
 use yolov10::{draw_labels, onnx::InferenceEngine};

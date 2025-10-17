@@ -1,3 +1,5 @@
+#![cfg(feature = "candle")]
+
 use std::error::Error;
 
 use candle_nn::VarBuilder;

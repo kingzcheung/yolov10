@@ -45,3 +45,12 @@ optional = true
 version = "=2.0.0-rc.10"
 features = ["ndarray", "cuda",]
 optional = true
+
+
+[[example]]
+name = "basic_with_labels"
+required-features = ["onnx"]
+
+[[example]]
+name = "basic"
+required-features = ["onnx"]
