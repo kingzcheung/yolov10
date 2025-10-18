@@ -46,11 +46,7 @@ impl TensorRemOps for Tensor {
         let result: Vec<Vec<u32>> = self_data
             .into_iter()
             .zip(other_data)
-            .map(|(row1, row2)| {
-                row1.into_iter().zip(row2)
-                    .map(|(a, b)| a % b)
-                    .collect()
-            })
+            .map(|(row1, row2)| row1.into_iter().zip(row2).map(|(a, b)| a % b).collect())
             .collect();
 
         // 将结果展平并重塑为原来的形状
@@ -59,21 +55,19 @@ impl TensorRemOps for Tensor {
     }
 }
 
-
-
 /// 广播两个张量形状，计算广播后的目标形状
-/// 
+///
 /// 该函数实现了NumPy风格的广播规则，用于确定两个不同形状的张量
 /// 在进行元素级操作时应该广播到的目标形状。
-/// 
+///
 /// # 参数
 /// * `shape1` - 第一个张量的形状引用
 /// * `shape2` - 第二个张量的形状引用
-/// 
+///
 /// # 返回值
 /// * `Ok(Shape)` - 广播成功时返回目标形状
 /// * `Err(Error)` - 当两个形状无法广播时返回错误
-/// 
+///
 /// # 广播规则
 /// 1. 每个维度大小相等，或其中一个为1
 /// 2. 结果形状的每个维度取两个输入维度的最大值

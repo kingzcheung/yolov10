@@ -11,7 +11,6 @@ pub mod onnx;
 pub const IMAGENET_MEAN: [f32; 3] = [0.485f32, 0.456, 0.406];
 pub const IMAGENET_STD: [f32; 3] = [0.229f32, 0.224, 0.225];
 
-
 #[rustfmt::skip]
 pub const YOLOV10_CLASS_LABELS: [&str; 80] = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
@@ -138,12 +137,10 @@ pub fn filter_detections_with_labels(
         // 应用置信度阈值
         if confidence >= confidence_threshold {
             // 移除填充并缩放到原始图像尺寸
-            let  left = (left - pad_x as f32) / scale;
-            let  top = (top - pad_y as f32) / scale;
-            let  right = (right - pad_x as f32) / scale;
-            let  bottom = (bottom - pad_y as f32) / scale;
-
-
+            let left = (left - pad_x as f32) / scale;
+            let top = (top - pad_y as f32) / scale;
+            let right = (right - pad_x as f32) / scale;
+            let bottom = (bottom - pad_y as f32) / scale;
 
             let x = left as u32;
             let y = top as u32;

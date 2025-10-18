@@ -1,13 +1,12 @@
-use image::{imageops::FilterType, DynamicImage, GenericImageView};
+use image::{DynamicImage, GenericImageView, imageops::FilterType};
+use ndarray::Array;
 use ort::{
     inputs,
     session::{Session, SessionOutputs, builder::GraphOptimizationLevel},
     value::TensorRef,
 };
-use ndarray::Array;
 use std::borrow::Cow;
 use std::error::Error;
-
 
 #[cfg(feature = "onnx-coreml")]
 use ort::execution_providers::CoreMLExecutionProvider;
@@ -21,9 +20,7 @@ use ort::execution_providers::DirectMLExecutionProvider;
 #[cfg(feature = "onnx-tensorrt")]
 use ort::execution_providers::TensorRTExecutionProvider;
 
-use crate::{filter_detections, Detection};
-
-
+use crate::{Detection, filter_detections};
 
 /// YOLOv10推理引擎
 pub struct InferenceEngine<'a> {

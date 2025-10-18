@@ -11,7 +11,10 @@ pub struct Sequential {
 impl fmt::Debug for Sequential {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Sequential")
-            .field("layers", &format!("Vec<Box<dyn Module>> with {} layers", self.layers.len()))
+            .field(
+                "layers",
+                &format!("Vec<Box<dyn Module>> with {} layers", self.layers.len()),
+            )
             .finish()
     }
 }
@@ -81,7 +84,6 @@ impl<F: Fn(&Tensor) -> Result<Tensor> + Send + Sync + Clone + 'static> Cloneable
         Box::new(self.clone())
     }
 }
-
 
 struct FuncImpl {
     f: Box<dyn CloneableFn>,

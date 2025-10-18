@@ -1,14 +1,14 @@
-pub use candle_nn::{VarBuilder};
-pub use candle_core::{Result, Tensor,DType,Device};
 use crate::candle::{backbone::Backbone, head::V10DetectionHead, neck::YoloNeck};
+pub use candle_core::{DType, Device, Result, Tensor};
+pub use candle_nn::VarBuilder;
 
+pub mod backbone;
 pub(crate) mod block;
 pub(crate) mod conv;
-pub mod sequential;
-pub mod backbone;
-pub mod neck;
 pub mod head;
+pub mod neck;
 pub mod op;
+pub mod sequential;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Multiples {
@@ -19,7 +19,7 @@ pub struct Multiples {
 
 impl Multiples {
     // [depth, width, max_channels]
-    /// [0.33, 0.25, 1024] 
+    /// [0.33, 0.25, 1024]
     pub fn n() -> Self {
         Self {
             depth: 0.33,
@@ -35,7 +35,7 @@ impl Multiples {
             ratio: 2.0,
         }
     }
-    /// [0.67, 0.75, 768] 
+    /// [0.67, 0.75, 768]
     pub fn m() -> Self {
         Self {
             depth: 0.67,
@@ -77,7 +77,6 @@ impl Multiples {
     }
 }
 
-
 pub struct YoloV10 {
     backbone: Backbone,
     neck: YoloNeck,
@@ -89,17 +88,21 @@ impl YoloV10 {
         let backbone = Backbone::load(vb.clone(), m)?;
         let neck = YoloNeck::load(vb.clone(), m)?;
         let head = V10DetectionHead::load(vb, num_classes, m.filters())?;
-        Ok(Self { backbone, neck, head })
+        Ok(Self {
+            backbone,
+            neck,
+            head,
+        })
     }
-    
+
     /// Forward pass for inference
     pub fn forward(&self, xs: &Tensor) -> Result<Tensor> {
         let (xs1, xs2, xs3) = self.backbone.forward(xs)?;
         let (xs1, xs2, xs3) = self.neck.forward(&xs1, &xs2, &xs3)?;
-        
+
         self.head.forward(&xs1, &xs2, &xs3)
     }
-    
+
     /// Forward pass for training which returns both one2many and one2one outputs
     pub fn forward_train(&self, xs: &Tensor) -> Result<(Tensor, Tensor)> {
         let (xs1, xs2, xs3) = self.backbone.forward(xs)?;
