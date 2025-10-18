@@ -31,7 +31,7 @@ impl ConvBlock {
         };
         // 先创建卷积层
         let conv = conv2d_no_bias(c1, c2, k, cfg, vb.pp("conv"))?;
-        
+
         // 然后创建BN层并吸收
         let bn = batch_norm(c2, 1e-3, vb.pp("bn"))?;
         let conv = conv.absorb_bn(&bn)?;

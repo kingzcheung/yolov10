@@ -1,26 +1,27 @@
 #![cfg(feature = "candle")]
 
-use std::error::Error;
-use candle_core::{Device, Tensor, DType};
+use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
+use std::error::Error;
 use yolov10::{
-    draw_labels, filter_detections,
     candle::{Multiples, YoloV10},
+    draw_labels, filter_detections,
 };
 
-#[test]
-fn test_yolov10s_inference() -> Result<(), Box<dyn Error>> {
+use crate::common::download_if_not_exists;
+mod common;
+
+#[tokio::test]
+async fn test_yolov10s_inference() -> Result<(), Box<dyn Error>> {
     // 使用 CPU 设备进行测试
     let device = Device::cuda_if_available(0)?;
 
+    let filename = download_if_not_exists("yolov10s.safetensors").await?;
+
+    println!("loading model weights: {filename:?}");
+
     // 加载 yolov10s 模型权重
-    let vb = unsafe {
-        VarBuilder::from_mmaped_safetensors(
-            &["yolov10s.safetensors"],
-            DType::F32,
-            &device,
-        )
-    }?;
+    let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[filename], DType::F32, &device) }?;
 
     // 加载测试图像
     let input_data = include_bytes!("../testdata/bus.jpg");
@@ -28,11 +29,8 @@ fn test_yolov10s_inference() -> Result<(), Box<dyn Error>> {
 
     // 预处理图像
     let image_t = {
-        let img = original_image.resize_exact(
-            640u32,
-            640u32,
-            image::imageops::FilterType::CatmullRom,
-        );
+        let img =
+            original_image.resize_exact(640u32, 640u32, image::imageops::FilterType::CatmullRom);
         let data = img.to_rgb8().into_raw();
         Tensor::from_vec(
             data,
@@ -48,7 +46,7 @@ fn test_yolov10s_inference() -> Result<(), Box<dyn Error>> {
 
     // 执行推理
     let output = yolo.forward(&image_t)?;
-    
+
     // 验证输出形状是否正确
     // YOLOv10s 输出形状为 [1, 300, 6]
     // 其中 6 = 4 (边界框坐标) + 1 (置信度) + 1 (类别ID)
@@ -60,9 +58,9 @@ fn test_yolov10s_inference() -> Result<(), Box<dyn Error>> {
     // 过滤检测结果
     let results = filter_detections(
         &output_vec,
-        0.3,  // 置信度阈值
-        640,  // 输入图像宽度
-        640,  // 输入图像高度
+        0.3, // 置信度阈值
+        640, // 输入图像宽度
+        640, // 输入图像高度
         original_image.width() as u32,
         original_image.height() as u32,
     );
@@ -73,7 +71,7 @@ fn test_yolov10s_inference() -> Result<(), Box<dyn Error>> {
     // 验证检测结果格式正确
     for detection in &results {
         let (_x, _y, width, height) = detection.bbox;
-        
+
         // 验证置信度在合理范围内
         assert!(detection.confidence >= 0.3 && detection.confidence <= 1.0);
         // 验证类别 ID 在有效范围内
@@ -84,8 +82,11 @@ fn test_yolov10s_inference() -> Result<(), Box<dyn Error>> {
 
     // 保存带标注的结果图像
     let img = draw_labels(&original_image, &results);
-    img.save_with_format("./target/yolov10s_test_result.jpg", image::ImageFormat::Jpeg)
-        .unwrap();
+    img.save_with_format(
+        "./target/yolov10s_test_result.jpg",
+        image::ImageFormat::Jpeg,
+    )
+    .unwrap();
 
     println!("YOLOv10s inference test passed!");
     println!("Detected {} objects", results.len());

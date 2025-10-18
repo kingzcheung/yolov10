@@ -1,7 +1,7 @@
-use super::sequential::{seq, Sequential};
 use super::conv::ConvBlock;
-use candle_core::{Result, Tensor, D};
-use candle_nn::{conv2d_no_bias, func, ops::softmax, Conv2d, Module, VarBuilder};
+use super::sequential::{Sequential, seq};
+use candle_core::{D, Result, Tensor};
+use candle_nn::{Conv2d, Module, VarBuilder, conv2d_no_bias, func, ops::softmax};
 
 #[derive(Debug)]
 pub struct SCDown {
@@ -34,10 +34,7 @@ impl RepVGGDW {
     pub fn load(vb: VarBuilder, ed: usize) -> Result<Self> {
         let conv = ConvBlock::load(vb.pp("conv"), ed, ed, 7, 1, Some(3), Some(ed), false)?;
         let conv1 = ConvBlock::load(vb.pp("conv1"), ed, ed, 3, 1, Some(1), Some(ed), false)?;
-        Ok(Self {
-            conv,
-            conv1,
-        })
+        Ok(Self { conv, conv1 })
     }
 }
 
@@ -103,8 +100,16 @@ impl CIB {
             let rep_vgg_dw = RepVGGDW::load(vb.pp("cv1.2"), 2 * c_)?;
             cv1 = cv1.add(func(move |xs| rep_vgg_dw.forward(xs)));
         } else {
-            let conv_block =
-                ConvBlock::load(vb.pp("cv1.2"), 2 * c_, 2 * c_, 3, 1, None, Some(2 * c_), true)?;
+            let conv_block = ConvBlock::load(
+                vb.pp("cv1.2"),
+                2 * c_,
+                2 * c_,
+                3,
+                1,
+                None,
+                Some(2 * c_),
+                true,
+            )?;
             cv1 = cv1.add(func(move |xs| conv_block.forward(xs)));
         }
 
@@ -292,7 +297,7 @@ pub struct Dfl {
 impl Dfl {
     pub fn load(vb: VarBuilder, num_classes: usize) -> Result<Self> {
         let conv = conv2d_no_bias(num_classes, 1, 1, Default::default(), vb.pp("conv"))?;
-        
+
         Ok(Self {
             conv,
             num_classes,
@@ -313,9 +318,8 @@ impl Module for Dfl {
     }
 }
 
-
 #[derive(Clone, Debug)]
-pub struct Attention{
+pub struct Attention {
     qkv: ConvBlock,
     proj: ConvBlock,
     pe: ConvBlock,
@@ -327,7 +331,7 @@ pub struct Attention{
 
 impl Attention {
     /// num_heads=8, attn_ratio=0.5
-    pub fn load(vb:VarBuilder,dim:usize,num_heads:usize,attn_ratio:f64)->Result<Self> {
+    pub fn load(vb: VarBuilder, dim: usize, num_heads: usize, attn_ratio: f64) -> Result<Self> {
         let head_dim = dim / num_heads;
         let key_dim = (head_dim as f64 * attn_ratio) as usize;
         let scale = (key_dim as f64).powf(-0.5);
@@ -338,35 +342,31 @@ impl Attention {
         let proj = ConvBlock::load(vb.pp("proj"), dim, dim, 1, 1, None, None, false)?;
         let pe = ConvBlock::load(vb.pp("pe"), dim, dim, 3, 1, None, Some(dim), false)?;
 
-        Ok(
-            Self {
-                qkv,
-                proj,
-                pe,
-                num_heads,
-                key_dim,
-                scale,
-                head_dim,
-            }
-        )
+        Ok(Self {
+            qkv,
+            proj,
+            pe,
+            num_heads,
+            key_dim,
+            scale,
+            head_dim,
+        })
     }
 }
 
 impl Module for Attention {
     fn forward(&self, xs: &Tensor) -> Result<Tensor> {
         let shape = xs.shape();
-        let (b,c,h,w) = shape.dims4()?;
+        let (b, c, h, w) = shape.dims4()?;
 
         let n = h * w;
         let qkv = self.qkv.forward(xs)?;
 
-        let rs = qkv.reshape(
-            (b,self.num_heads,self.key_dim*2 + self.head_dim,n)
-        )?;
+        let rs = qkv.reshape((b, self.num_heads, self.key_dim * 2 + self.head_dim, n))?;
         // let (q,k,v) = rs.split(self.key_dim*2 + self.head_dim, 2)?;
-        let q = rs.narrow(2, 0, self.key_dim)?;  // 从dim=2的第0个位置开始，取key_dim个元素
-        let k = rs.narrow(2, self.key_dim, self.key_dim)?;  // 从dim=2的第key_dim个位置开始，取key_dim个元素
-        let v = rs.narrow(2, self.key_dim * 2, self.head_dim)?;  // 从dim=2的第key_dim*2个位置开始，取head_dim个元素
+        let q = rs.narrow(2, 0, self.key_dim)?; // 从dim=2的第0个位置开始，取key_dim个元素
+        let k = rs.narrow(2, self.key_dim, self.key_dim)?; // 从dim=2的第key_dim个位置开始，取key_dim个元素
+        let v = rs.narrow(2, self.key_dim * 2, self.head_dim)?; // 从dim=2的第key_dim*2个位置开始，取head_dim个元素
 
         let attn = (q.transpose(D::Minus2, D::Minus1)?.matmul(&k)? * self.scale)?;
 
@@ -374,14 +374,13 @@ impl Module for Attention {
 
         let attn_t = attn.transpose(D::Minus2, D::Minus1)?;
         let mat = v.matmul(&attn_t)?;
-        let matmul_reshaped = mat.reshape((b,c,h,w))?;
+        let matmul_reshaped = mat.reshape((b, c, h, w))?;
 
-        let v_reshaped = v.reshape((b,c,h,w))?;
+        let v_reshaped = v.reshape((b, c, h, w))?;
         let pe = self.pe.forward(&v_reshaped)?;
 
         let x = matmul_reshaped.broadcast_add(&pe)?;
-        self.proj.forward(&x) 
-
+        self.proj.forward(&x)
     }
 }
 
@@ -396,38 +395,50 @@ pub struct Psa {
 
 impl Psa {
     /// e: 0.5
-    pub fn load(vb: VarBuilder, c1: usize,c2:usize,e: f64) ->Result<Self> {
+    pub fn load(vb: VarBuilder, c1: usize, c2: usize, e: f64) -> Result<Self> {
         assert_eq!(c1, c2);
         let c = (c1 as f64 * e) as usize;
-        let cv1 = ConvBlock::load(vb.pp("cv1"), c1, 2*c, 1, 1, None, Some(1), true)?;
-        let cv2 = ConvBlock::load(vb.pp("cv2"), 2*c, c1, 1, 1, None, Some(1), true)?;
+        let cv1 = ConvBlock::load(vb.pp("cv1"), c1, 2 * c, 1, 1, None, Some(1), true)?;
+        let cv2 = ConvBlock::load(vb.pp("cv2"), 2 * c, c1, 1, 1, None, Some(1), true)?;
 
-        let attn = Attention::load(vb.pp("attn"), c, c/64, 0.5)?;
+        let attn = Attention::load(vb.pp("attn"), c, c / 64, 0.5)?;
 
         let ffn = seq()
-        .add(
-            ConvBlock::load(vb.pp("ffn.0"), c, c*2, 1, 1, None, Some(1), true)?
-        )
-        .add(ConvBlock::load(vb.pp("ffn.1"), c*2,c, 1, 1, None, Some(1), false)?);
-
-
-        Ok(
-            Self {
+            .add(ConvBlock::load(
+                vb.pp("ffn.0"),
                 c,
-                cv1,
-                cv2,
-                attn,
-                ffn,
-            }
-        )
+                c * 2,
+                1,
+                1,
+                None,
+                Some(1),
+                true,
+            )?)
+            .add(ConvBlock::load(
+                vb.pp("ffn.1"),
+                c * 2,
+                c,
+                1,
+                1,
+                None,
+                Some(1),
+                false,
+            )?);
+
+        Ok(Self {
+            c,
+            cv1,
+            cv2,
+            attn,
+            ffn,
+        })
     }
 }
 impl Module for Psa {
-
-        //a, b = self.cv1(x).split((self.c, self.c), dim=1)
-        // b = b + self.attn(b)
-        // b = b + self.ffn(b)
-        // return self.cv2(torch.cat((a, b), 1))
+    //a, b = self.cv1(x).split((self.c, self.c), dim=1)
+    // b = b + self.attn(b)
+    // b = b + self.ffn(b)
+    // return self.cv2(torch.cat((a, b), 1))
     fn forward(&self, xs: &Tensor) -> Result<Tensor> {
         let cv1_output = self.cv1.forward(xs)?;
         let a = cv1_output.narrow(1, 0, self.c)?;
@@ -435,18 +446,16 @@ impl Module for Psa {
 
         let attn = self.attn.forward(&b)?;
         let b = b.broadcast_add(&attn)?;
-        
 
         let ffn = self.ffn.forward(&b)?;
         let b = b.broadcast_add(&ffn)?;
 
-        let cat = Tensor::cat(&[a,b], 1)?;
+        let cat = Tensor::cat(&[a, b], 1)?;
         let ys = self.cv2.forward(&cat)?;
-        
+
         Ok(ys)
     }
 }
-
 
 #[derive(Clone, Debug)]
 pub(crate) struct Sppf {
@@ -459,8 +468,8 @@ pub(crate) struct Sppf {
 impl Sppf {
     pub fn load(vb: VarBuilder, c1: usize, c2: usize, k: usize) -> Result<Self> {
         let c_ = c1 / 2;
-        let cv1 = ConvBlock::load(vb.pp("cv1"), c1, c_, 1, 1, None,Some(1),true)?;
-        let cv2 = ConvBlock::load(vb.pp("cv2"), c_ * 4, c2, 1, 1, None,Some(1),true)?;
+        let cv1 = ConvBlock::load(vb.pp("cv1"), c1, c_, 1, 1, None, Some(1), true)?;
+        let cv2 = ConvBlock::load(vb.pp("cv2"), c_ * 4, c2, 1, 1, None, Some(1), true)?;
         Ok(Self {
             cv1,
             cv2,

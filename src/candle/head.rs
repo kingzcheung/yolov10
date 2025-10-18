@@ -259,12 +259,11 @@ impl V10DetectionHead {
         let ys2 = reshape(xs2)?;
 
         let x_cat = Tensor::cat(&[ys0, ys1, ys2], 2)?;
-        
+
         let box_ = x_cat.i((.., ..self.ch * 4))?;
         let cls = x_cat.i((.., self.ch * 4..))?;
 
-        
-        let dbox = dist2bbox(&self.dfl.forward(&box_)?, &anchors,false)?;
+        let dbox = dist2bbox(&self.dfl.forward(&box_)?, &anchors, false)?;
         // println!("dbox:{dbox}");
         let dbox = dbox.broadcast_mul(&strides)?;
         let pred = Tensor::cat(&[dbox, candle_nn::ops::sigmoid(&cls)?], 1)?;
@@ -280,7 +279,7 @@ impl V10DetectionHead {
             self.one2one_cv2.clone(),
             self.one2one_cv3.clone(),
         )?;
-        
+
         let one2one_result = self.forward_i(&one2one.0, &one2one.1, &one2one.2)?;
         // Apply v10postprocess
         let permuted = one2one_result.transpose(1, 2)?; // Permute to match PyTorch's permute(0, 2, 1)
