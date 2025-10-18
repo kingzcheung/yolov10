@@ -43,7 +43,7 @@ def export_to_safetensors(model_path, output_path=None):
     tensors = model.model.state_dict() # type: ignore
     
     for k, v in tensors.items():
-        print(str(k), v.shape, file=open(f"{name}_keys.txt","a"))
+        print(str(k), v.shape,)
     
     # 保存为safetensors格式
     save_model(model.model, output_path) # type: ignore
