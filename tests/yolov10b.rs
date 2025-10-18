@@ -9,14 +9,14 @@ use yolov10::{
 };
 
 #[test]
-fn test_yolov10m_inference() -> Result<(), Box<dyn Error>> {
+fn test_yolov10b_inference() -> Result<(), Box<dyn Error>> {
     // 使用 CPU 设备进行测试
     let device = Device::cuda_if_available(0)?;
 
-    // 加载 yolov10m 模型权重
+    // 加载 yolov10b 模型权重
     let vb = unsafe {
         VarBuilder::from_mmaped_safetensors(
-            &["yolov10m.safetensors"],
+            &["yolov10b.safetensors"],
             DType::F32,
             &device,
         )
@@ -43,15 +43,15 @@ fn test_yolov10m_inference() -> Result<(), Box<dyn Error>> {
     };
     let image_t = (image_t.unsqueeze(0)?.to_dtype(DType::F32)? * (1. / 255.))?;
 
-    // 创建 YOLOv10m 模型实例
-    let yolo = YoloV10::load(vb, Multiples::m(), 80)?;
+    // 创建 YOLOv10b 模型实例
+    let yolo = YoloV10::load(vb, Multiples::b(), 80)?;
 
     // 执行推理
     let output = yolo.forward(&image_t)?;
     
     // 验证输出形状是否正确
-    // YOLOv10m 输出形状为 [1, 8400, 84]，与 n 模型不同
-    // 其中 84 = 4 (边界框坐标) + 80 (类别分数)
+    // YOLOv10b 输出形状为 [1, 300, 6]，与 l/x 模型相同
+    // 其中 6 = 4 (边界框坐标) + 1 (置信度) + 1 (类别ID)
     assert_eq!(output.dims(), &[1, 300, 6]);
 
     // 将输出展平并转换为 Vec<f32>
@@ -84,10 +84,10 @@ fn test_yolov10m_inference() -> Result<(), Box<dyn Error>> {
 
     // 保存带标注的结果图像
     let img = draw_labels(&original_image, &results);
-    img.save_with_format("./target/yolov10m_test_result.jpg", image::ImageFormat::Jpeg)
+    img.save_with_format("./target/yolov10b_test_result.jpg", image::ImageFormat::Jpeg)
         .unwrap();
 
-    println!("YOLOv10m inference test passed!");
+    println!("YOLOv10b inference test passed!");
     println!("Detected {} objects", results.len());
 
     Ok(())

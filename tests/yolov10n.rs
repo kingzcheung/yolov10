@@ -11,7 +11,7 @@ use yolov10::{
 #[test]
 fn test_yolov10n_inference() -> Result<(), Box<dyn Error>> {
     // 使用 CPU 设备进行测试
-    let device = Device::Cpu;
+    let device = Device::cuda_if_available(0)?;
 
     // 加载 yolov10n 模型权重
     let vb = unsafe {
@@ -84,7 +84,7 @@ fn test_yolov10n_inference() -> Result<(), Box<dyn Error>> {
 
     // 保存带标注的结果图像
     let img = draw_labels(&original_image, &results);
-    img.save_with_format("yolov10n_test_result.jpg", image::ImageFormat::Jpeg)
+    img.save_with_format("./target/yolov10n_test_result.jpg", image::ImageFormat::Jpeg)
         .unwrap();
 
     println!("YOLOv10n inference test passed!");

@@ -25,6 +25,8 @@ impl Module for B41 {
     }
 }
 
+pub type B31 = B41;
+
 #[derive(Debug)]
 pub struct Backbone {
     b1_0: ConvBlock,
@@ -33,7 +35,7 @@ pub struct Backbone {
     b2_1: ConvBlock,
     b2_2: C2f,
     b3_0: SCDown,
-    b3_1: C2f,
+    b3_1: B31,
     b4_0: SCDown,
     b4_1: B41, // 使用泛型类型
     b5: Sppf,
@@ -96,13 +98,26 @@ impl Backbone {
             3,
             2,
         )?;
-        let b3_1 = C2f::load(
-            vb.pp("model.6"),
-            (512. * w) as usize,
-            (512. * w) as usize,
-            (6. * d).round() as usize,
-            true,
-        )?;
+        let b3_1 = if m == Multiples::x() {
+            B31::C2fCIB(C2fCIB::load(
+                vb.pp("model.6"),
+                (512. * w) as usize,
+                (512. * w) as usize,
+                (6. * d).round() as usize,
+                true,
+                false,
+                1,
+                0.5,
+            )?)
+        } else {
+            B31::C2f(C2f::load(
+                vb.pp("model.6"),
+                (512. * w) as usize,
+                (512. * w) as usize,
+                (6. * d).round() as usize,
+                true,
+            )?)
+        };
         let b4_0 = SCDown::load(
             vb.pp("model.7"),
             (512. * w) as usize,
@@ -126,9 +141,9 @@ impl Backbone {
                 (512. * w * r) as usize,
                 (3. * d).round() as usize,
                 true,                /* shortcut */
-                m == Multiples::s(),       /* lk */
-                1,                          /* g */
-                0.5,                        /* e */
+                m == Multiples::s(), /* lk */
+                1,                   /* g */
+                0.5,                 /* e */
             )?)
         };
 
