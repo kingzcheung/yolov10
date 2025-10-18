@@ -1,5 +1,7 @@
 # YOLOv10 Object Detection in Rust
 
+>  This has not reached a production-ready level, please do not use it in production environments.
+
 This project implements YOLOv10 object detection model inference using Rust programming language. It supports two backend frameworks: ONNX Runtime and Candle, which can be selected through Cargo features.
 
 ## Features
@@ -14,11 +16,13 @@ This project implements YOLOv10 object detection model inference using Rust prog
 ## Backend Frameworks
 
 ### ONNX Runtime (default)
+
 - Based on Microsoft's ONNX Runtime
 - Supports multiple execution providers: CPU, CUDA, CoreML, DirectML, TensorRT
 - Works with ONNX model files
 
 ### Candle
+
 - Based on the Candle ML framework (Pure Rust)
 - Lightweight and no external C++ dependencies
 - Works with safetensors model files
@@ -36,15 +40,15 @@ yolov10 = { version = "*" } # * means latest
 
 The crate provides several features for customizing the backend and hardware acceleration:
 
-| Feature        | Description                        | Backend    |
-|----------------|------------------------------------|------------|
-| `onnx`         | Use ONNX Runtime as backend        | ONNX       |
-| `candle`       | Use Candle as backend (default)    | Candle     |
-| `onnx-cuda`    | Enable CUDA support for ONNX       | ONNX       |
-| `onnx-coreml`  | Enable CoreML support for ONNX     | ONNX       |
-| `onnx-directml`| Enable DirectML support for ONNX   | ONNX       |
-| `onnx-tensorrt`| Enable TensorRT support for ONNX   | ONNX       |
-| `candle-cuda`  | Enable CUDA support for Candle     | Candle     |
+| Feature           | Description                      | Backend |
+| ----------------- | -------------------------------- | ------- |
+| `onnx`          | Use ONNX Runtime as backend      | ONNX    |
+| `candle`        | Use Candle as backend (default)  | Candle  |
+| `onnx-cuda`     | Enable CUDA support for ONNX     | ONNX    |
+| `onnx-coreml`   | Enable CoreML support for ONNX   | ONNX    |
+| `onnx-directml` | Enable DirectML support for ONNX | ONNX    |
+| `onnx-tensorrt` | Enable TensorRT support for ONNX | ONNX    |
+| `candle-cuda`   | Enable CUDA support for Candle   | Candle  |
 
 By default, the `candle` feature is enabled. To use ONNX Runtime instead:
 
@@ -63,23 +67,24 @@ use yolov10::{InferenceEngine, draw_labels};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create inference engine with ONNX model
     let mut engine = InferenceEngine::new("yolov10s.onnx")?;
-    
+  
     // Load image
     let input_data = std::fs::read("input.jpg")?;
-    
+  
     // Run inference
     let results = engine.run_inference(&input_data, 0.3)?;
-    
+  
     // Visualize results
     let image = image::load_from_memory(&input_data)?;
     let img = draw_labels(&image, &results);
     img.save("result.jpg")?;
-    
+  
     Ok(())
 }
 ```
 
 To run with ONNX backend:
+
 ```bash
 cargo run --features onnx --example basic
 ```
@@ -103,7 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &device,
         )
     }?;
-    
+  
     // Load and preprocess image
     let original_image = image::load_from_memory(include_bytes!("../testdata/bus.jpg"))?;
     let image_t = {
@@ -121,11 +126,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .permute((2, 0, 1))?
     };
     let image_t = (image_t.unsqueeze(0)?.to_dtype(DType::F32)? * (1. / 255.))?;
-    
+  
     // Create model and run inference
     let yolo = YoloV10::load(vb, Multiples::s(), 80)?;
     let output = yolo.forward(&image_t)?;
-    
+  
     // Postprocess results
     let output_vec: Vec<f32> = output.flatten_all()?.to_vec1()?;
     let results = filter_detections(
@@ -136,16 +141,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         original_image.width() as u32,
         original_image.height() as u32,
     );
-    
+  
     // Visualize results
     let img = draw_labels(&original_image, &results);
     img.save_with_format("result.jpg", image::ImageFormat::Jpeg)?;
-    
+  
     Ok(())
 }
 ```
 
 To run with Candle backend:
+
 ```bash
 cargo run --features candle --example candle
 ```
@@ -159,6 +165,7 @@ The project provides several examples:
 3. `candle` - Object detection using Candle backend
 
 Run examples with:
+
 ```bash
 # ONNX examples
 cargo run --features onnx --example basic
@@ -181,6 +188,7 @@ cargo test --features onnx
 ```
 
 Specific model tests:
+
 ```bash
 # Test YOLOv10n model
 cargo test --features candle test_yolov10n_inference
