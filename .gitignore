@@ -5,3 +5,4 @@ Cargo.lock
 *.pt
 uv.lock
 *.safetensors
+*.txt

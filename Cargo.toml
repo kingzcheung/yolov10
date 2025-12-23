@@ -2,6 +2,7 @@
 name = "yolov10"
 version = "0.2.0"
 edition = "2024"
+rust-version = "1.87.0"
 authors = ["kingzcheung <kingzcheung@gmail.com>"]
 description = "YOLOv10 object detection implementation in Rust with ONNX Runtime"
 license = "Apache-2.0"
@@ -13,7 +14,7 @@ keywords = ["yolo", "object-detection", "computer-vision", "onnx", "ai"]
 categories = ["computer-vision", "science::robotics", "multimedia::images"]
 
 [dependencies]
-ndarray = "0.16.1"
+ndarray = "0.17.1"
 image = "0.25.8"
 imageproc = "0.25.0"
 ab_glyph = "0.2.31"
@@ -27,7 +28,7 @@ tokio ={ version = "1", features = ["full"]}
 anyhow = "1.0.75"
 
 [features]
-default = ["candle"]
+default = ["candle","candle-cuda"]
 candle = ["candle-core", "candle-nn","tracing"]
 candle-cuda = ["candle-core/cuda", "candle-nn/cuda","tracing"]
 onnx = ["ort"]
@@ -59,3 +60,7 @@ required-features = ["onnx"]
 [[example]]
 name = "basic"
 required-features = ["onnx"]
+
+[[example]]
+name = "candle"
+required-features = ["candle"]

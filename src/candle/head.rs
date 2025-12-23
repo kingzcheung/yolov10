@@ -1,4 +1,4 @@
-use crate::candle::op::{TensorRemOps, TopKLastDimOp, TopKOutput};
+use crate::candle::op::{TensorRemOps, TopKOutput};
 
 use super::{block::Dfl, conv::ConvBlock};
 use candle_core::{D, DType, IndexOp, Result, Tensor};
@@ -50,6 +50,49 @@ fn dist2bbox(distance: &Tensor, anchor_points: &Tensor, xywh: bool) -> Result<Te
     }
 }
 
+pub trait TopKLastDimOp {
+    /// Topk in the last dim. `values` retains a gradient but `indices` has none w.r.t self.
+    /// This expects a contiguous tensor.
+    /// Note: this implements torch.topk with sorted=True.
+    fn topk(&self, topk: usize) -> Result<TopKOutput>;
+
+    /// Topk in the last dim. `values` retains a gradient but `indices` has none w.r.t self.
+    /// This expects a contiguous tensor.
+    /// Note: this implements torch.topk with sorted=False.
+    fn topk_unsorted(&self, topk: usize) -> Result<TopKOutput>;
+}
+
+impl TopKLastDimOp for Tensor {
+    fn topk(&self, topk: usize) -> Result<TopKOutput> {
+        // Sorted descending
+        // println!("shape: {:?}", self.shape());
+        let sorted_indices = self.arg_sort_last_dim(false)?;
+        let topk_indices = sorted_indices.narrow(D::Minus1, 0, topk)?.contiguous()?;
+        Ok(TopKOutput {
+            values: self.gather(&topk_indices, D::Minus1)?,
+            indices: topk_indices,
+        })
+    }
+
+    fn topk_unsorted(&self, topk: usize) -> Result<TopKOutput> {
+        // Sorted descending
+        let sorted_indices_all = self.arg_sort_last_dim(false)?;
+        let topk_indices_sorted = sorted_indices_all
+            .narrow(D::Minus1, 0, topk)?
+            .contiguous()?;
+        let topk_values_sorted = self.gather(&topk_indices_sorted, D::Minus1)?;
+
+        // Reorder the indices ascending
+        let reorder_indices = topk_indices_sorted.arg_sort_last_dim(true)?;
+        let topk_indices_unsorted = topk_indices_sorted.gather(&reorder_indices, D::Minus1)?;
+        let topk_values_unsorted = topk_values_sorted.gather(&reorder_indices, D::Minus1)?;
+        Ok(TopKOutput {
+            values: topk_values_unsorted,
+            indices: topk_indices_unsorted,
+        })
+    }
+}
+
 /// preds: Tensor[[1, 8400, 84], f32]
 fn v10postprocess(preds: &Tensor, max_det: usize, nc: usize) -> Result<Tensor> {
     let preds_shape = preds.dims();
@@ -62,10 +105,13 @@ fn v10postprocess(preds: &Tensor, max_det: usize, nc: usize) -> Result<Tensor> {
     let amax_scores = scores.max(D::Minus1)?;
 
     // max_scores, index = torch.topk(max_scores, max_det, dim=-1)
+
     let TopKOutput {
         values: _max_scores,
         indices: topk_indices,
     } = amax_scores.topk(max_det)?;
+
+        dbg!("我是测试");
 
     let index = topk_indices.unsqueeze(D::Minus1)?; // Equivalent to index.unsqueeze(-1)
     let boxes = boxes.contiguous()?.gather(&index.repeat((1, 1, 4))?, 1)?;

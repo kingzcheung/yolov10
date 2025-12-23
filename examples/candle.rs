@@ -1,4 +1,3 @@
-#![cfg(feature = "candle")]
 
 use std::error::Error;
 use std::time::Instant;
@@ -8,9 +7,11 @@ use yolov10::{
     candle::{DType, Multiples, Tensor, YoloV10},
     draw_labels, filter_detections,
 };
+
 fn main() -> Result<(), Box<dyn Error>> {
     let input_data = include_bytes!("../testdata/zidane.jpg");
     let device = yolov10::candle::Device::cuda_if_available(0)?;
+    // let device = yolov10::candle::Device::new_cuda(0)?;
 
     println!("device: {device:?}");
 
